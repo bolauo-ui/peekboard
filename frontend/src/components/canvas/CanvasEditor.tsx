@@ -294,6 +294,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       canvas: fabric.Canvas, url: string, pos?: { x: number; y: number }
     ) => {
       fabric.Image.fromURL(url, (img) => {
+        if (!img) { console.error('Image failed to load:', url.slice(0, 80)); return; }
         // Use natural dimensions — no size cap
         const sw = (img.width  ?? 0) * (img.scaleX ?? 1);
         const sh = (img.height ?? 0) * (img.scaleY ?? 1);
@@ -737,7 +738,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       // Use a native <img> element — the browser animates GIF frames automatically.
       // No gifler / no main-thread decoding / no freeze.
       const imgEl = new window.Image();
-      imgEl.crossOrigin = 'anonymous';
+      // Only set crossOrigin for external http/https URLs.
+      // Blob URLs are same-origin — setting crossOrigin on them causes onerror
+      // in strict browsers (Safari) because blob responses carry no CORS headers.
+      if (!sourceFile && displayUrl && !displayUrl.startsWith('blob:')) {
+        imgEl.crossOrigin = 'anonymous';
+      }
 
       imgEl.onload = () => {
         const w = imgEl.naturalWidth  || 200;
@@ -786,7 +792,10 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         requestAnimationFrame(tick);
       };
 
-      imgEl.onerror = () => console.warn('GIF failed to load:', displayUrl);
+      imgEl.onerror = (e) => {
+        console.error('GIF failed to load:', displayUrl, e);
+        alert('Failed to load GIF. Please try a different file.');
+      };
       imgEl.src = displayUrl;
     };
 

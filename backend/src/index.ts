@@ -220,10 +220,12 @@ app.get('/api/boards/:id/members', authenticate, requireBoardRole(['owner','edit
       const u = a.user_id ? db.users.find((u) => u.id === a.user_id) : null;
       return { ...a, name: u?.name ?? null, avatar_color: u?.avatar_color ?? null };
     });
-  const ownerUser = db.users.find((u) => u.id === req.boardCtx.board.owner_id)!;
+  const ownerUser = db.users.find((u) => u.id === req.boardCtx.board.owner_id);
   res.json({
     members,
-    owner: { id: ownerUser.id, email: ownerUser.email, name: ownerUser.name, avatar_color: ownerUser.avatar_color, role: 'owner' },
+    owner: ownerUser
+      ? { id: ownerUser.id, email: ownerUser.email, name: ownerUser.name, avatar_color: ownerUser.avatar_color, role: 'owner' }
+      : null,
   });
 });
 
