@@ -1,0 +1,10 @@
+[build]
+buildCommand = "npm install && npm run build"
+
+[deploy]
+startCommand = "node backend/dist/index.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "peekboard"

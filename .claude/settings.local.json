@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(wait)",
+      "Bash(/opt/homebrew/bin/brew list *)",
+      "Bash(/opt/homebrew/bin/brew install *)",
+      "Bash(gh auth *)",
+      "Bash(npm --version)"
+    ]
+  }
+}

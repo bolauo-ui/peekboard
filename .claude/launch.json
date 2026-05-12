@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "motionboard-frontend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "eval \"$(/opt/workbrew/bin/brew shellenv)\" && export PATH=\"/opt/homebrew/bin:$PATH\" && cd frontend && npx vite --port 5173"],
+      "port": 5173
+    }
+  ]
+}

@@ -1,0 +1,338 @@
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { fabric } from 'fabric';
+import { Users, MessageSquare, ChevronRight, ChevronLeft } from 'lucide-react';
+import { boardsApi, uploadApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
+import type { Board as BoardType, CanvasData, Tool } from '@/types';
+import CanvasEditor, { type CanvasEditorHandle } from '@/components/canvas/CanvasEditor';
+import Toolbar from '@/components/canvas/Toolbar';
+import PropertiesPanel from '@/components/canvas/PropertiesPanel';
+import ShareModal from '@/components/ShareModal';
+import CommentsPanel from '@/components/CommentsPanel';
+
+export default function Board() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+
+  const [board, setBoard]       = useState<BoardType | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  const [activeTool, setActiveTool]   = useState<Tool>('select');
+  const [selectedObj, setSelectedObj] = useState<fabric.Object | null>(null);
+  const [canvas, setCanvas]           = useState<fabric.Canvas | null>(null);
+  const [bgColor, setBgColor]         = useState('#f0f0f0');
+
+  const [showShare,    setShowShare]    = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showProps,    setShowProps]    = useState(true);
+  const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
+
+  const editorRef  = useRef<CanvasEditorHandle>(null);
+  const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stable refs so keyboard handler ([] deps) always sees current values
+  const canvasRef    = useRef<fabric.Canvas | null>(null);
+  const toolRef      = useRef<Tool>('select');
+  const boardRef     = useRef<BoardType | null>(null);
+
+  useEffect(() => { canvasRef.current  = canvas;      }, [canvas]);
+  useEffect(() => { toolRef.current    = activeTool;  }, [activeTool]);
+  useEffect(() => { boardRef.current   = board;       }, [board]);
+
+  useEffect(() => {
+    if (!id) return;
+    boardsApi.get(id)
+      .then(({ board }) => setBoard(board))
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+  useEffect(() => {
+    const prevTool  = { current: 'select' as Tool };
+    const spaceHeld = { current: false };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Never steal keypresses from inputs / text editing
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Also ignore when editing a fabric IText
+      if ((e.target as HTMLElement)?.classList?.contains('canvas-container')) return;
+
+      const meta = e.metaKey || e.ctrlKey;
+
+      // ── Space → temporary hand tool ──────────────────────────────────────
+      if (e.code === 'Space' && !spaceHeld.current && !meta) {
+        e.preventDefault();
+        spaceHeld.current = true;
+        prevTool.current  = toolRef.current;
+        setActiveTool('hand');
+        return;
+      }
+
+      // ── Tool shortcuts (no modifier) ─────────────────────────────────────
+      if (!meta && !e.shiftKey) {
+        const b = boardRef.current;
+        const canEdit = b?.role === 'owner' || b?.role === 'editor';
+        const map: Record<string, Tool> = { v: 'select', h: 'hand' };
+        if (canEdit) { map['t'] = 'text'; map['f'] = 'frame'; }
+        if (canEdit || b?.role === 'commenter') map['c'] = 'comment';
+
+        if (map[e.key]) { setActiveTool(map[e.key]); return; }
+        if (e.key === 'Escape') { setActiveTool('select'); return; }
+      }
+
+      // ── Delete / Backspace ───────────────────────────────────────────────
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !meta) {
+        const c   = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) { c.remove(obj); c.renderAll(); }
+        return;
+      }
+
+      // ── Undo / Redo ──────────────────────────────────────────────────────
+      if (meta && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault(); editorRef.current?.undo(); return;
+      }
+      if (meta && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault(); editorRef.current?.redo(); return;
+      }
+
+      // ── Copy ─────────────────────────────────────────────────────────────
+      if (meta && e.key === 'c') {
+        editorRef.current?.copy(); return;
+      }
+
+      // ── Paste — let the native paste event drive CanvasEditor ────────────
+      // (image/SVG from clipboard OR internal fabric clipboard)
+      // We intentionally skip meta+v here so CanvasEditor's paste handler
+      // handles it exclusively, avoiding double-paste.
+
+      // ── Duplicate (Cmd+D) ────────────────────────────────────────────────
+      if (meta && e.key === 'd') {
+        e.preventDefault();
+        const c   = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) {
+          obj.clone((cl: fabric.Object) => {
+            cl.set({ left: (cl.left ?? 0) + 20, top: (cl.top ?? 0) + 20 });
+            c.add(cl); c.setActiveObject(cl); c.renderAll();
+          });
+        }
+        return;
+      }
+
+      // ── Select all (Cmd+A) ───────────────────────────────────────────────
+      if (meta && e.key === 'a') {
+        e.preventDefault();
+        const c = canvasRef.current;
+        if (c) {
+          const objs = c.getObjects();
+          if (!objs.length) return;
+          const sel = new fabric.ActiveSelection(objs, { canvas: c });
+          c.setActiveObject(sel); c.renderAll();
+        }
+        return;
+      }
+
+      // ── Arrow nudge ──────────────────────────────────────────────────────
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+        const c   = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          const delta: Record<string, Partial<{ left: number; top: number }>> = {
+            ArrowUp:    { top:  (obj.top  ?? 0) - step },
+            ArrowDown:  { top:  (obj.top  ?? 0) + step },
+            ArrowLeft:  { left: (obj.left ?? 0) - step },
+            ArrowRight: { left: (obj.left ?? 0) + step },
+          };
+          obj.set(delta[e.key] as any);
+          obj.setCoords();
+          c.renderAll();
+        }
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && spaceHeld.current) {
+        spaceHeld.current = false;
+        setActiveTool(prevTool.current);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup',   onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup',   onKeyUp);
+    };
+  }, []); // eslint-disable-line
+
+  const handleCanvasChange = useCallback(async (data: CanvasData) => {
+    if (!id || !board || board.role === 'viewer') return;
+    setSaveStatus('saving');
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await boardsApi.update(id, { canvas_data: JSON.stringify(data) });
+        setSaveStatus('saved');
+      } catch { setSaveStatus('unsaved'); }
+    }, 1000);
+  }, [id, board]);
+
+  const handleBackgroundChange = useCallback((color: string) => {
+    setBgColor(color);
+    editorRef.current?.setBackground(color);
+  }, []);
+
+  const handleExport = () => {
+    const dataUrl = editorRef.current?.exportFrame();
+    if (!dataUrl) return;
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${board?.name ?? 'peekboard'}-frame.png`;
+    a.click();
+  };
+
+  if (loading) return (
+    <div className="h-full flex items-center justify-center" style={{ background: 'var(--bg-toolbar)' }}>
+      <div className="w-7 h-7 rounded-full border-2 border-t-transparent animate-spin"
+        style={{ borderColor: 'var(--accent) transparent var(--accent) var(--accent)' }} />
+    </div>
+  );
+
+  if (notFound || !board) return (
+    <div className="h-full flex flex-col items-center justify-center" style={{ background: 'var(--bg-toolbar)' }}>
+      <p className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Board not found</p>
+      <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>You may not have access to this board.</p>
+      <button onClick={() => navigate('/dashboard')}
+        className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+        style={{ background: 'var(--accent)' }}>
+        Back to dashboard
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-toolbar)' }}>
+      {/* Top toolbar */}
+      <Toolbar
+        activeTool={activeTool}
+        onToolChange={setActiveTool}
+        onAddText={() => { editorRef.current?.addText(); setActiveTool('select'); }}
+        onMediaAdded={(url, mime) => editorRef.current?.addMedia(url, mime)}
+        onExport={handleExport}
+        role={board.role}
+        boardName={board.name}
+        onBack={() => navigate('/dashboard')}
+      />
+
+      {/* Sub-bar */}
+      <div
+        className="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)' }}
+      >
+        <span className="text-xs font-medium" style={{
+          color: saveStatus === 'saved' ? '#34d399' : saveStatus === 'saving' ? '#fbbf24' : '#f05252'
+        }}>
+          {saveStatus === 'saved'   && '✓ Saved'}
+          {saveStatus === 'saving'  && '● Saving…'}
+          {saveStatus === 'unsaved' && '✕ Save failed'}
+        </span>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowComments(!showComments)}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
+            style={{
+              background: showComments ? 'rgba(245,158,11,0.15)' : 'transparent',
+              color: showComments ? '#fbbf24' : 'var(--text-secondary)',
+            }}
+            onMouseEnter={e => { if (!showComments) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!showComments) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <MessageSquare size={12} />
+            Comments
+          </button>
+
+          {board.role === 'owner' && (
+            <button
+              onClick={() => setShowShare(true)}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md font-semibold text-white transition-colors"
+              style={{ background: 'var(--accent)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
+            >
+              <Users size={12} />
+              Share
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowProps(!showProps)}
+            className="flex items-center justify-center w-7 h-7 rounded-md transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+            title={showProps ? 'Hide panel' : 'Show panel'}
+          >
+            {showProps ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Editor area */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
+          <CanvasEditor
+            ref={editorRef}
+            board={board}
+            activeTool={activeTool}
+            role={board.role}
+            onObjectSelect={(obj) => { setSelectedObj(obj); if (obj) setShowProps(true); }}
+            onCanvasChange={handleCanvasChange}
+            onCanvasReady={setCanvas}
+            onBackgroundChange={setBgColor}
+            onToolChange={setActiveTool}
+            uploadFn={(file) => uploadApi.upload(file)}
+          />
+          <div
+            className="absolute bottom-3 left-3 text-xs px-2 py-1 rounded pointer-events-none select-none"
+            style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-muted)' }}
+          >
+            Scroll to zoom · Space+drag to pan
+          </div>
+        </div>
+
+        {showProps && (
+          <PropertiesPanel
+            selectedObject={selectedObj}
+            canvas={canvas}
+            role={board.role}
+            backgroundColor={bgColor}
+            onBackgroundChange={handleBackgroundChange}
+          />
+        )}
+
+        {showComments && user && (
+          <CommentsPanel
+            boardId={board.id}
+            currentUser={user}
+            role={board.role}
+            canvas={canvas}
+            activeTool={activeTool}
+            onToolChange={setActiveTool}
+          />
+        )}
+      </div>
+
+      {showShare && user && (
+        <ShareModal boardId={board.id} currentUser={user} onClose={() => setShowShare(false)} />
+      )}
+    </div>
+  );
+}
