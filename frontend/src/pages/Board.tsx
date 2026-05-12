@@ -2,15 +2,16 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fabric } from 'fabric';
 import { Users, MessageSquare, ChevronRight, ChevronLeft } from 'lucide-react';
-import { boardsApi, uploadApi } from '@/lib/api';
+import { boardsApi, uploadApi, commentsApi, sharingApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
-import type { Board as BoardType, CanvasData, Tool } from '@/types';
+import type { Board as BoardType, CanvasData, Tool, Comment } from '@/types';
 import CanvasEditor, { type CanvasEditorHandle } from '@/components/canvas/CanvasEditor';
 import Toolbar from '@/components/canvas/Toolbar';
 import PropertiesPanel from '@/components/canvas/PropertiesPanel';
 import LayerPanel from '@/components/LayerPanel';
 import ShareModal from '@/components/ShareModal';
 import CommentsPanel from '@/components/CommentsPanel';
+import CommentsOverlay, { type BoardMemberLite } from '@/components/canvas/CommentsOverlay';
 import ZoomControl from '@/components/canvas/ZoomControl';
 
 export default function Board() {
@@ -35,6 +36,12 @@ export default function Board() {
   const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
   const [zoom,         setZoom]         = useState(1);
 
+  // ── Comments + members (lifted so overlay + sidebar share one source of truth)
+  const [comments,        setComments]        = useState<Comment[]>([]);
+  const [replies,         setReplies]         = useState<Comment[]>([]);
+  const [members,         setMembers]         = useState<BoardMemberLite[]>([]);
+  const [showResolved,    setShowResolved]    = useState(false);
+
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,6 +61,53 @@ export default function Board() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Pull comments + members once the board is loaded. The owner is added as
+  // a synthetic member so they appear in @mention dropdowns even though the
+  // members endpoint only lists shared collaborators.
+  useEffect(() => {
+    if (!id || !board) return;
+    commentsApi.list(id).then(({ comments, replies }) => {
+      setComments(comments); setReplies(replies);
+    }).catch(() => { /* silent */ });
+    sharingApi.getMembers(id).then(({ members, owner }) => {
+      const list: BoardMemberLite[] = [
+        { id: owner.id, name: owner.name, avatar_color: owner.avatar_color },
+        ...members
+          .filter(m => m.user_id && m.name)
+          .map(m => ({ id: m.user_id!, name: m.name!, avatar_color: m.avatar_color || '#888' })),
+      ];
+      // Dedupe by id
+      const seen = new Set<string>();
+      setMembers(list.filter(m => (seen.has(m.id) ? false : (seen.add(m.id), true))));
+    }).catch(() => { /* silent */ });
+  }, [id, board]);
+
+  // ── Comment mutations (shared by overlay + sidebar) ──────────────────────
+  const addComment = useCallback(async (x: number, y: number, content: string) => {
+    if (!id) return null;
+    const { comment } = await commentsApi.create(id, { x, y, content });
+    setComments(p => [...p, comment]);
+    return comment;
+  }, [id]);
+
+  const addReply = useCallback(async (parentId: string, content: string) => {
+    if (!id) return null;
+    const { comment } = await commentsApi.create(id, { x: 0, y: 0, content, parent_id: parentId });
+    setReplies(p => [...p, comment]);
+    return comment;
+  }, [id]);
+
+  const resolveComment = useCallback(async (commentId: string) => {
+    await commentsApi.resolve(commentId);
+    setComments(p => p.map(c => c.id === commentId ? { ...c, resolved: 1 } : c));
+  }, []);
+
+  const deleteComment = useCallback(async (commentId: string) => {
+    await commentsApi.delete(commentId);
+    setComments(p => p.filter(c => c.id !== commentId));
+    setReplies(p => p.filter(r => r.parent_id !== commentId && r.id !== commentId));
+  }, []);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -374,6 +428,28 @@ export default function Board() {
             onZoomTo={(l) => editorRef.current?.zoomTo(l)}
             onZoomToFit={() => editorRef.current?.zoomToFit()}
           />
+
+          {/* Figma-style comment pins float above the canvas. The overlay
+              handles its own pointer events so it doesn't steal interaction
+              from the canvas — only the pins themselves are clickable. */}
+          {user && board && (
+            <CommentsOverlay
+              boardId={board.id}
+              currentUser={user}
+              role={board.role}
+              canvas={canvas}
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+              comments={comments}
+              replies={replies}
+              members={members}
+              showResolved={showResolved}
+              onAddComment={addComment}
+              onAddReply={addReply}
+              onResolve={resolveComment}
+              onDelete={deleteComment}
+            />
+          )}
         </div>
 
         {showProps && (
@@ -388,12 +464,17 @@ export default function Board() {
 
         {showComments && user && (
           <CommentsPanel
-            boardId={board.id}
             currentUser={user}
             role={board.role}
-            canvas={canvas}
             activeTool={activeTool}
             onToolChange={setActiveTool}
+            comments={comments}
+            replies={replies}
+            showResolved={showResolved}
+            onToggleResolved={() => setShowResolved(v => !v)}
+            onResolve={resolveComment}
+            onDelete={deleteComment}
+            onAddReply={addReply}
           />
         )}
       </div>

@@ -783,6 +783,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         canvas.isDrawingMode = false; canvas.selection = false;
         canvas.defaultCursor = 'crosshair'; canvas.hoverCursor = 'crosshair';
         canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
+      } else if (activeTool === 'comment') {
+        // Comment-pin mode: crosshair cursor everywhere, swallow object
+        // selection so the click event becomes the "drop pin here" gesture.
+        canvas.isDrawingMode = false; canvas.selection = false;
+        canvas.defaultCursor = 'crosshair'; canvas.hoverCursor = 'crosshair';
+        canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
       } else {
         canvas.isDrawingMode = false; canvas.selection = editable;
         canvas.defaultCursor = activeTool === 'text' ? 'text' : 'default';
