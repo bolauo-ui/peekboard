@@ -760,8 +760,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         offCanvas.height = h;
         const offCtx = offCanvas.getContext('2d')!;
 
-        // Draw the initial frame
-        offCtx.clearRect(0, 0, w, h);
+        // Draw the initial frame on white — GIFs with transparent backgrounds
+        // would otherwise show the (potentially dark) canvas colour through
+        // them.  White matches how every browser renders GIFs on a web page.
+        offCtx.fillStyle = '#ffffff';
+        offCtx.fillRect(0, 0, w, h);
         offCtx.drawImage(imgEl, 0, 0, w, h);
 
         const fabricImg = new fabric.Image(offCanvas as any, {
@@ -800,7 +803,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           if (cancelled) return;
           if (now - last >= POLL_MS) {
             last = now;
-            offCtx.clearRect(0, 0, w, h);
+            offCtx.fillStyle = '#ffffff';
+            offCtx.fillRect(0, 0, w, h);
             offCtx.drawImage(imgEl, 0, 0, w, h);
             (fabricImg as any).dirty = true;
             canvas.requestRenderAll();
