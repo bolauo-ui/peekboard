@@ -25,6 +25,7 @@ interface Props {
   onCanvasReady?:      (canvas: fabric.Canvas) => void;
   onBackgroundChange?: (color: string) => void;
   onToolChange?:       (t: Tool) => void;
+  onLayersChange?:     () => void;
   uploadFn?:           (file: File) => Promise<{ url: string; mimetype: string }>;
 }
 
@@ -32,14 +33,14 @@ const DEFAULT_BG = '#f0f0f0';
 
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
   ({ board, activeTool, role, onObjectSelect, onCanvasChange, onCanvasReady,
-     onBackgroundChange, onToolChange, uploadFn }, ref) => {
+     onBackgroundChange, onToolChange, onLayersChange, uploadFn }, ref) => {
 
     const canvasElRef   = useRef<HTMLCanvasElement>(null);
     const wrapperRef    = useRef<HTMLDivElement>(null);
     const fabricRef     = useRef<fabric.Canvas | null>(null);
     const mediaItemsRef = useRef<MediaItem[]>([]);
-    const animFrameIds  = useRef<number[]>([]);
-    const blobUrls      = useRef<string[]>([]);       // tracked for cleanup
+    const blobUrls       = useRef<string[]>([]);      // tracked for cleanup
+    const gifStoppers    = useRef(new Map<string, () => void>()); // cancel GIF loops
     const isPanning     = useRef(false);
     const lastPtr       = useRef({ x: 0, y: 0 });
     const activeToolRef = useRef<Tool>(activeTool);
@@ -72,14 +73,16 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const [isDragOver, setIsDragOver] = useState(false);
 
     // Stable refs for late-binding callbacks
-    const onToolChangeRef = useRef(onToolChange);
-    const uploadFnRef     = useRef(uploadFn);
-    const canEditRef      = useRef(role !== 'viewer');
-    const scheduleRef     = useRef<() => void>(() => {});
+    const onToolChangeRef   = useRef(onToolChange);
+    const onLayersChangeRef = useRef(onLayersChange);
+    const uploadFnRef       = useRef(uploadFn);
+    const canEditRef        = useRef(role !== 'viewer');
+    const scheduleRef       = useRef<() => void>(() => {});
 
-    useEffect(() => { onToolChangeRef.current = onToolChange; }, [onToolChange]);
-    useEffect(() => { uploadFnRef.current     = uploadFn;    }, [uploadFn]);
-    useEffect(() => { canEditRef.current      = role !== 'viewer'; }, [role]);
+    useEffect(() => { onToolChangeRef.current   = onToolChange;   }, [onToolChange]);
+    useEffect(() => { onLayersChangeRef.current = onLayersChange; }, [onLayersChange]);
+    useEffect(() => { uploadFnRef.current       = uploadFn;       }, [uploadFn]);
+    useEffect(() => { canEditRef.current        = role !== 'viewer'; }, [role]);
 
     // ── History ──────────────────────────────────────────────────────────────
     const pushHistory = useCallback(() => {
@@ -230,12 +233,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     // ── Imperative handle ────────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
       addMedia: (url, mimeType, file) => {
-        if (!fabricRef.current) return;
+        const canvas = fabricRef.current;
+        if (!canvas) return;
         if (mimeType === 'image/gif') {
-          addGif(fabricRef.current, url, undefined, undefined, file);
+          addGif(canvas, url, undefined, undefined, file);
+        } else if (mimeType === 'video/mp4' || mimeType === 'video/webm') {
+          addVideo(canvas, url, mimeType === 'video/webm' ? 'webm' : 'mp4');
         } else {
-          const t = mimeType === 'video/webm' ? 'webm' : 'mp4';
-          addMediaFn(fabricRef.current, url, t);
+          // PNG, JPG, WebP, SVG, data URLs — add as static image
+          addImageUrl(canvas, url);
         }
       },
       addText:     () => { if (fabricRef.current) addTextAtCenter(fabricRef.current); },
@@ -582,14 +588,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
         pushHistory();
         scheduleRef.current();
+        onLayersChangeRef.current?.();
       });
 
-      canvas.on('object:added',   () => { if (!isRestoring.current) scheduleRef.current(); });
-      canvas.on('object:removed', () => { if (!isRestoring.current) scheduleRef.current(); });
+      canvas.on('object:added',   () => { if (!isRestoring.current) { scheduleRef.current(); onLayersChangeRef.current?.(); } });
+      canvas.on('object:removed', (e) => {
+        if (!isRestoring.current) { scheduleRef.current(); onLayersChangeRef.current?.(); }
+        // Stop GIF animation for removed object
+        const id = (e.target as any)?.data?.id;
+        if (id && gifStoppers.current.has(id)) {
+          gifStoppers.current.get(id)!();
+          gifStoppers.current.delete(id);
+        }
+      });
 
       return () => {
-        animFrameIds.current.forEach(cancelAnimationFrame);
-        animFrameIds.current = [];
+        gifStoppers.current.forEach(stop => stop());
+        gifStoppers.current.clear();
         if (changeTimer.current) clearTimeout(changeTimer.current);
         blobUrls.current.forEach(u => URL.revokeObjectURL(u));
         blobUrls.current = [];
@@ -756,15 +771,19 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         // marking dirty re-draws the current frame onto the canvas.
         const POLL_MS = 50;
         let last = 0;
+        let cancelled = false;
+        gifStoppers.current.set(id, () => { cancelled = true; });
+
         const tick = (now: number) => {
+          if (cancelled) return;
           if (now - last >= POLL_MS) {
             last = now;
             (fabricImg as any).dirty = true;
             canvas.requestRenderAll();
           }
-          animFrameIds.current.push(requestAnimationFrame(tick));
+          requestAnimationFrame(tick);
         };
-        animFrameIds.current.push(requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
       };
 
       imgEl.onerror = () => console.warn('GIF failed to load:', displayUrl);
@@ -792,11 +811,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           mediaItemsRef.current.push({ id, type, url, left: img.left!, top: img.top!, width: v.videoWidth, height: v.videoHeight, scaleX: 1, scaleY: 1, angle: 0, opacity: 1 });
           scheduleRef.current();
         }
+        let videoCancelled = false;
+        gifStoppers.current.set(id, () => { videoCancelled = true; v.pause(); });
         const loop = () => {
+          if (videoCancelled) return;
           if (!v.paused) { (img as fabric.Image).dirty = true; canvas.requestRenderAll(); }
-          animFrameIds.current.push(requestAnimationFrame(loop));
+          requestAnimationFrame(loop);
         };
-        animFrameIds.current.push(requestAnimationFrame(loop));
+        requestAnimationFrame(loop);
       }, { once: true });
       v.load();
     };
@@ -838,20 +860,27 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         for (const file of Array.from(e.dataTransfer.files)) {
           if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
 
-          // GIFs: display instantly from local blob — no server round-trip needed for rendering
+          // GIF: local blob URL — instant, no server round-trip
           if (file.type === 'image/gif') {
             addGif(canvas, '', undefined, { x: dropX, y: dropY }, file);
             continue;
           }
 
+          // Static image: FileReader data URL — instant + persists in canvas JSON
+          if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = () => addImageUrl(canvas, reader.result as string, { x: dropX, y: dropY });
+            reader.readAsDataURL(file);
+            continue;
+          }
+
+          // Video: must upload to server for streaming
           if (uploadFnRef.current) {
             try {
-              const r  = await uploadFnRef.current(file);
-              const t  = r.mimetype === 'video/webm' ? 'webm'
-                       : r.mimetype === 'video/mp4'  ? 'mp4' : null;
-              if (t) addMediaFn(canvas, r.url, t as any, undefined, { x: dropX, y: dropY });
-              else   addImageUrl(canvas, r.url, { x: dropX, y: dropY });
-            } catch (err) { console.error('Drop failed:', err); }
+              const r = await uploadFnRef.current(file);
+              const t = r.mimetype === 'video/webm' ? 'webm' : 'mp4';
+              addVideo(canvas, r.url, t, undefined, { x: dropX, y: dropY });
+            } catch (err) { console.error('Drop upload failed:', err); }
           }
         }
         return;

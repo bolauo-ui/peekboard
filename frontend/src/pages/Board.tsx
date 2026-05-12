@@ -8,6 +8,7 @@ import type { Board as BoardType, CanvasData, Tool } from '@/types';
 import CanvasEditor, { type CanvasEditorHandle } from '@/components/canvas/CanvasEditor';
 import Toolbar from '@/components/canvas/Toolbar';
 import PropertiesPanel from '@/components/canvas/PropertiesPanel';
+import LayerPanel from '@/components/LayerPanel';
 import ShareModal from '@/components/ShareModal';
 import CommentsPanel from '@/components/CommentsPanel';
 
@@ -28,6 +29,8 @@ export default function Board() {
   const [showShare,    setShowShare]    = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showProps,    setShowProps]    = useState(true);
+  const [showLayers,   setShowLayers]   = useState(true);
+  const [layerVersion, setLayerVersion] = useState(0);
   const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
@@ -246,6 +249,18 @@ export default function Board() {
 
         <div className="flex items-center gap-1.5">
           <button
+            onClick={() => setShowLayers(!showLayers)}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
+            style={{
+              background: showLayers ? 'rgba(123,104,238,0.15)' : 'transparent',
+              color: showLayers ? '#a89cf7' : 'var(--text-secondary)',
+            }}
+            onMouseEnter={e => { if (!showLayers) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!showLayers) e.currentTarget.style.background = 'transparent'; }}
+          >
+            Layers
+          </button>
+          <button
             onClick={() => setShowComments(!showComments)}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
             style={{
@@ -287,6 +302,15 @@ export default function Board() {
 
       {/* Editor area */}
       <div className="flex flex-1 overflow-hidden">
+        {showLayers && (
+          <LayerPanel
+            canvas={canvas}
+            selectedObject={selectedObj}
+            onSelect={(obj) => { setSelectedObj(obj); if (obj) setShowProps(true); }}
+            layerVersion={layerVersion}
+            canEdit={board.role === 'owner' || board.role === 'editor'}
+          />
+        )}
         <div className="flex-1 overflow-hidden relative">
           <CanvasEditor
             ref={editorRef}
@@ -298,6 +322,7 @@ export default function Board() {
             onCanvasReady={setCanvas}
             onBackgroundChange={setBgColor}
             onToolChange={setActiveTool}
+            onLayersChange={() => setLayerVersion(v => v + 1)}
             uploadFn={(file) => uploadApi.upload(file)}
           />
           <div

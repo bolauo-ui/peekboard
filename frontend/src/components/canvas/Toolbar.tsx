@@ -45,24 +45,32 @@ export default function Toolbar({
     const file = e.target.files?.[0];
     if (!file || uploadingRef.current) return;
     uploadingRef.current = true;
+    const reset = () => { uploadingRef.current = false; e.target.value = ''; };
 
-    // GIFs: pass the File object directly so CanvasEditor can use a local blob URL
-    // — instant display with no server round-trip freeze
+    // GIF: pass File directly → CanvasEditor uses local blob URL (instant, no server wait)
     if (file.type === 'image/gif') {
-      onMediaAdded('__gif_file__', 'image/gif', file);
-      uploadingRef.current = false;
-      e.target.value = '';
+      onMediaAdded('', 'image/gif', file);
+      reset();
       return;
     }
 
+    // Static image: FileReader data URL → instant display + persists in canvas JSON
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => { onMediaAdded(reader.result as string, file.type); reset(); };
+      reader.onerror = () => reset();
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Video: must upload to server
     try {
       const result = await uploadApi.upload(file);
       onMediaAdded(result.url, result.mimetype);
     } catch (err: any) {
       alert(err.response?.data?.error || 'Upload failed');
     } finally {
-      uploadingRef.current = false;
-      e.target.value = '';
+      reset();
     }
   };
 
