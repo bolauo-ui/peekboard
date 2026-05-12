@@ -791,28 +791,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           scheduleRef.current();
         }
 
-        // Poll at ~20fps: snapshot the current GIF frame into the off-screen
-        // canvas, then ask Fabric to re-draw.  The dirty flag forces Fabric to
-        // bypass its cache and re-read the canvas element.
-        const POLL_MS = 50;
-        let last = 0;
+        // On every animation frame: snapshot the current GIF frame into the
+        // off-screen canvas, mark the Fabric image dirty, and re-render.
+        // Running every rAF tick (≈60fps) ensures we never skip a fast frame.
         let cancelled = false;
         gifStoppers.current.set(id, () => {
           cancelled = true;
-          // Remove the hidden <img> from the DOM to allow GC and stop animation
+          // Remove the hidden <img> from the DOM to stop animation & allow GC
           if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
         });
 
-        const tick = (now: number) => {
+        const tick = () => {
           if (cancelled) return;
-          if (now - last >= POLL_MS) {
-            last = now;
-            offCtx.fillStyle = '#ffffff';
-            offCtx.fillRect(0, 0, w, h);
-            offCtx.drawImage(imgEl, 0, 0, w, h);
-            (fabricImg as any).dirty = true;
-            canvas.requestRenderAll();
-          }
+          offCtx.fillStyle = '#ffffff';
+          offCtx.fillRect(0, 0, w, h);
+          offCtx.drawImage(imgEl, 0, 0, w, h);
+          (fabricImg as any).dirty = true;
+          canvas.requestRenderAll();
           requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -824,12 +819,17 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         alert('Failed to load GIF. Please try a different file.');
       };
 
-      // Attach the <img> to the DOM (hidden, off-screen) BEFORE or right after
-      // setting src.  Browsers only advance GIF animation for DOM-attached images;
-      // an off-DOM <img> stays frozen on frame 1 — which is why the GIF appeared
-      // static even though the rAF loop was running.
-      imgEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;' +
-        'opacity:0;pointer-events:none;width:1px;height:1px;';
+      // Attach the <img> to the DOM BEFORE setting src so the browser registers it
+      // in the document before the GIF starts decoding.
+      //
+      // WHY: browsers only run the GIF animation engine for DOM-attached <img>
+      // elements. An off-DOM image stays frozen on frame 1.
+      //
+      // CSS: position it far off-screen at its natural dimensions.
+      // DO NOT use opacity:0 or width/height:1px — those are browser hints to
+      // skip animation for invisible / tiny elements (verified broken in Chrome
+      // and Safari). Just move it out of the visible viewport instead.
+      imgEl.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none;';
       document.body.appendChild(imgEl);
 
       imgEl.src = displayUrl;
