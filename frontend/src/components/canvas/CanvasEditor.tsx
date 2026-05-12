@@ -878,6 +878,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             scheduleRef.current();
           }
 
+          // ── PERSISTENCE ───────────────────────────────────────────────────
+          // For local-file GIFs the initial `url` is empty / a blob: URL,
+          // neither of which survives a page refresh. Upload the file to the
+          // server in the background and swap the saved url to the server's
+          // permanent URL so reloading the board re-fetches the GIF.
+          if (sourceFile && uploadFn && !url) {
+            uploadFn(sourceFile)
+              .then(({ url: serverUrl }) => {
+                if (cancelled || !serverUrl) return;
+                const item = mediaItemsRef.current.find(m => m.id === id);
+                if (item) item.url = serverUrl;
+                (fabricImg as any).data = { ...(fabricImg as any).data, url: serverUrl };
+                scheduleRef.current();
+              })
+              .catch(err => console.warn('GIF upload failed; will not persist across refresh:', err));
+          }
+
           // Render frames in a loop using setTimeout and per-frame delays.
           let i = 0;
           let savedImageData: ImageData | null = null;
