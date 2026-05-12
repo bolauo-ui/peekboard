@@ -749,7 +749,22 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const w = imgEl.naturalWidth  || 200;
         const h = imgEl.naturalHeight || 200;
 
-        const fabricImg = new fabric.Image(imgEl as any, {
+        // ── Off-screen canvas snapshot approach ──────────────────────────────
+        // Drawing <img> directly to the Fabric canvas causes GIF frame-disposal
+        // artifacts: transparent frames bleed through instead of clearing cleanly.
+        // Solution: snapshot each frame via clearRect + drawImage on an off-screen
+        // canvas, then use that canvas as the fabric.Image source.  The clear
+        // ensures every frame is composited from scratch with no bleed-through.
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width  = w;
+        offCanvas.height = h;
+        const offCtx = offCanvas.getContext('2d')!;
+
+        // Draw the initial frame
+        offCtx.clearRect(0, 0, w, h);
+        offCtx.drawImage(imgEl, 0, 0, w, h);
+
+        const fabricImg = new fabric.Image(offCanvas as any, {
           left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
           top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
           scaleX:  saved?.scaleX ?? 1,
@@ -773,8 +788,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           scheduleRef.current();
         }
 
-        // Poll at ~20fps — browser advances the GIF frame in the <img> element;
-        // marking dirty re-draws the current frame onto the canvas.
+        // Poll at ~20fps: snapshot the current GIF frame into the off-screen
+        // canvas, then ask Fabric to re-draw.  The dirty flag forces Fabric to
+        // bypass its cache and re-read the canvas element.
         const POLL_MS = 50;
         let last = 0;
         let cancelled = false;
@@ -784,6 +800,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           if (cancelled) return;
           if (now - last >= POLL_MS) {
             last = now;
+            offCtx.clearRect(0, 0, w, h);
+            offCtx.drawImage(imgEl, 0, 0, w, h);
             (fabricImg as any).dirty = true;
             canvas.requestRenderAll();
           }
