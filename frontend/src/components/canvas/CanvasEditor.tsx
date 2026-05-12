@@ -817,7 +817,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       //
       // RIGHT order (below): src is already set when the element enters the DOM,
       // so no empty-src error fires and animation starts as soon as onload fires.
-      imgEl.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none;';
+      // Must be inside the viewport — Chrome/Safari pause GIF animation for fixed
+      // elements positioned outside the visible area (e.g. left:-99999px).
+      // z-index:-9999 puts it behind the entire app so it's never seen.
+      // opacity:0.01 (not 0) keeps the browser's animation engine running —
+      // opacity:0 is treated as "hidden" and frames stop advancing.
+      imgEl.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;z-index:-9999;opacity:0.01;';
       imgEl.src = displayUrl;                // ← src FIRST
       document.body.appendChild(imgEl);      // ← DOM second
     };
