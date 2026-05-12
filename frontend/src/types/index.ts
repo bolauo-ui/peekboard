@@ -62,6 +62,7 @@ export interface MediaItem {
 export interface CanvasData {
   fabricData: Record<string, unknown>;
   mediaItems: MediaItem[];
+  viewport?:  [number, number, number, number, number, number]; // fabric viewport transform
 }
 
 export type Tool = 'select' | 'hand' | 'text' | 'comment' | 'frame';

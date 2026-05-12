@@ -113,7 +113,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const filtered = (json.objects as any[]).filter(
           (o: any) => !['gif', 'mp4', 'webm'].includes(o?.data?.mediaType)
         );
-        onCanvasChange({ fabricData: { ...json, objects: filtered }, mediaItems: mediaItemsRef.current });
+        const vpt = canvas.viewportTransform
+          ? ([...canvas.viewportTransform] as CanvasData['viewport'])
+          : undefined;
+        onCanvasChange({
+          fabricData: { ...json, objects: filtered },
+          mediaItems: mediaItemsRef.current,
+          viewport: vpt,
+        });
       }, 800);
     }, [onCanvasChange]);
 
@@ -303,6 +310,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const cy = c.getHeight() / 2;
         c.zoomToPoint(new fabric.Point(cx, cy), z);
         onZoomChange?.(z);
+        scheduleRef.current();
       },
       zoomOut: () => {
         const c = fabricRef.current; if (!c) return;
@@ -311,6 +319,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const cy = c.getHeight() / 2;
         c.zoomToPoint(new fabric.Point(cx, cy), z);
         onZoomChange?.(z);
+        scheduleRef.current();
       },
       zoomTo: (level: number) => {
         const c = fabricRef.current; if (!c) return;
@@ -319,6 +328,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const cy = c.getHeight() / 2;
         c.zoomToPoint(new fabric.Point(cx, cy), z);
         onZoomChange?.(z);
+        scheduleRef.current();
       },
       zoomToFit: () => {
         const c = fabricRef.current; if (!c) return;
@@ -329,6 +339,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           c.setViewportTransform([1, 0, 0, 1, 0, 0]);
           onZoomChange?.(1);
           c.requestRenderAll();
+          scheduleRef.current();
           return;
         }
         // Compute bbox of all objects in canvas-space
@@ -352,6 +363,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         c.setViewportTransform([z, 0, 0, z, tx, ty]);
         onZoomChange?.(z);
         c.requestRenderAll();
+        scheduleRef.current();
       },
       getZoom: () => fabricRef.current?.getZoom() ?? 1,
     }));
@@ -415,6 +427,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           mediaItemsRef.current = saved.mediaItems;
           saved.mediaItems.forEach(item => addMediaFn(canvas, item.url, item.type, item));
         }
+
+        // Restore viewport (zoom + pan) so refresh returns to last view.
+        if (saved.viewport && saved.viewport.length === 6) {
+          canvas.setViewportTransform(saved.viewport as any);
+          onZoomChange?.(canvas.getZoom());
+          canvas.requestRenderAll();
+        }
       } catch (e) {
         console.warn('Canvas parse error', e);
         onBackgroundChange?.(DEFAULT_BG);
@@ -427,6 +446,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         zoom = Math.max(0.05, Math.min(zoom, 8));
         canvas.zoomToPoint(new fabric.Point(opt.e.offsetX, opt.e.offsetY), zoom);
         onZoomChange?.(zoom);
+        scheduleRef.current();   // persist new viewport
         opt.e.preventDefault(); opt.e.stopPropagation();
       });
 
@@ -529,6 +549,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
           canvas.renderAll();
           onToolChangeRef.current?.('select');
+          return;
+        }
+        if (isPanning.current) {
+          isPanning.current = false;
+          scheduleRef.current();   // persist viewport after pan
           return;
         }
         isPanning.current = false;
