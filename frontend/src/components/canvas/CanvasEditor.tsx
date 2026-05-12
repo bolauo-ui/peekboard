@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useSta
 import { fabric } from 'fabric';
 import type { Board, MediaItem, CanvasData, Tool } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { parseGIF, decompressFrames } from 'gifuct-js';
 
 export interface CanvasEditorHandle {
   addMedia:      (url: string, mimeType: string, file?: File) => void;
@@ -730,101 +731,152 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     ) => {
       const id = saved?.id ?? uuidv4();
 
-      // Build display URL — blob for local file, raw URL otherwise
-      const displayUrl = sourceFile
+      // ── PERMANENT FIX ──────────────────────────────────────────────────────
+      // We do NOT rely on the browser's <img> GIF animation engine. Chrome/
+      // Safari pause animation for off-viewport, hidden, or canvas-attached
+      // elements unpredictably. Instead we decode the GIF in JS with
+      // gifuct-js and drive the animation ourselves with setTimeout, drawing
+      // each frame onto an off-screen canvas that backs the Fabric image.
+
+      // Source: blob URL for local file, otherwise the remote URL.
+      // For local files we fetch the blob (always same-origin). For remote
+      // URLs we fetch directly — if CORS blocks, we fall back to a proxy.
+      const sourceUrl = sourceFile
         ? (() => { const b = URL.createObjectURL(sourceFile); blobUrls.current.push(b); return b; })()
         : url;
 
-      if (!displayUrl) return; // nothing to load
+      if (!sourceUrl) return;
 
-      const imgEl = new window.Image();
-      // ── CRITICAL: do NOT set crossOrigin here. ───────────────────────────────
-      // crossOrigin='anonymous' causes a silent onerror on any server that doesn't
-      // return CORS headers (most CDNs, imgur, giphy direct links, etc.).
-      // We never call getImageData / toDataURL on the GIF off-screen canvas, so
-      // canvas taint is not a problem for display.
+      let cancelled = false;
+      gifStoppers.current.set(id, () => { cancelled = true; });
 
-      imgEl.onload = () => {
-        const w = imgEl.naturalWidth  || 200;
-        const h = imgEl.naturalHeight || 200;
+      const fetchBuffer = async (u: string): Promise<ArrayBuffer> => {
+        // Try direct first
+        try {
+          const r = await fetch(u);
+          if (r.ok) return await r.arrayBuffer();
+        } catch { /* fall through to proxy */ }
+        // CORS-friendly proxy fallback for cross-origin GIFs
+        const proxied = `https://corsproxy.io/?${encodeURIComponent(u)}`;
+        const r2 = await fetch(proxied);
+        return await r2.arrayBuffer();
+      };
 
-        // Off-screen canvas: each rAF tick we fill white then drawImage(imgEl).
-        // White fill prevents transparent-pixel bleed-through between frames.
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width  = w;
-        offCanvas.height = h;
-        const offCtx = offCanvas.getContext('2d')!;
-        offCtx.fillStyle = '#ffffff';
-        offCtx.fillRect(0, 0, w, h);
-        offCtx.drawImage(imgEl, 0, 0, w, h);
-
-        const fabricImg = new fabric.Image(offCanvas as any, {
-          left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
-          top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
-          scaleX:  saved?.scaleX ?? 1,
-          scaleY:  saved?.scaleY ?? 1,
-          angle:   saved?.angle  ?? 0,
-          opacity: saved?.opacity ?? 1,
-          objectCaching: false,
-          data: { id, mediaType: 'gif', url },
-        } as any);
-
-        canvas.add(fabricImg);
-        canvas.sendToBack(fabricImg);
-
-        if (!saved?.id) {
-          mediaItemsRef.current.push({
-            id, type: 'gif', url,
-            left: fabricImg.left!, top: fabricImg.top!,
-            width: w, height: h,
-            scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
-          });
-          scheduleRef.current();
-        }
-
-        let cancelled = false;
-        gifStoppers.current.set(id, () => {
-          cancelled = true;
-          if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
-        });
-
-        // rAF loop: copy current animated frame from imgEl → offCanvas → Fabric
-        const tick = () => {
+      (async () => {
+        try {
+          const buf = await fetchBuffer(sourceUrl);
           if (cancelled) return;
+
+          const gif = parseGIF(buf);
+          const frames = decompressFrames(gif, true);
+          if (!frames.length) throw new Error('No frames decoded');
+
+          const w = gif.lsd.width;
+          const h = gif.lsd.height;
+
+          // Off-screen canvas that backs the Fabric image
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width  = w;
+          offCanvas.height = h;
+          const offCtx = offCanvas.getContext('2d')!;
           offCtx.fillStyle = '#ffffff';
           offCtx.fillRect(0, 0, w, h);
-          offCtx.drawImage(imgEl, 0, 0, w, h);
-          (fabricImg as any).dirty = true;
-          canvas.requestRenderAll();
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      };
 
-      imgEl.onerror = () => {
-        console.error('GIF failed to load:', displayUrl);
-        if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
-      };
+          // Patch canvas — used to convert each frame's RGBA patch into
+          // something we can drawImage onto the main off-screen canvas.
+          const patchCanvas = document.createElement('canvas');
+          const patchCtx    = patchCanvas.getContext('2d')!;
 
-      // ── CRITICAL ORDER ────────────────────────────────────────────────────────
-      // 1. Set src FIRST — browser starts fetching the GIF immediately.
-      // 2. THEN append to DOM — registers the element with the browser's GIF
-      //    animation engine so frames advance.
-      //
-      // WRONG order (what caused the "Failed to load GIF" alert):
-      //   appendChild(imgEl)  → browser fires onerror for missing src
-      //   imgEl.src = url     → too late; element already removed by onerror
-      //
-      // RIGHT order (below): src is already set when the element enters the DOM,
-      // so no empty-src error fires and animation starts as soon as onload fires.
-      // Must be inside the viewport — Chrome/Safari pause GIF animation for fixed
-      // elements positioned outside the visible area (e.g. left:-99999px).
-      // z-index:-9999 puts it behind the entire app so it's never seen.
-      // opacity:0.01 (not 0) keeps the browser's animation engine running —
-      // opacity:0 is treated as "hidden" and frames stop advancing.
-      imgEl.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;z-index:-9999;opacity:0.01;';
-      imgEl.src = displayUrl;                // ← src FIRST
-      document.body.appendChild(imgEl);      // ← DOM second
+          const fabricImg = new fabric.Image(offCanvas as any, {
+            left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
+            top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
+            scaleX:  saved?.scaleX ?? 1,
+            scaleY:  saved?.scaleY ?? 1,
+            angle:   saved?.angle  ?? 0,
+            opacity: saved?.opacity ?? 1,
+            objectCaching: false,
+            data: { id, mediaType: 'gif', url },
+          } as any);
+
+          canvas.add(fabricImg);
+          canvas.sendToBack(fabricImg);
+
+          if (!saved?.id) {
+            mediaItemsRef.current.push({
+              id, type: 'gif', url,
+              left: fabricImg.left!, top: fabricImg.top!,
+              width: w, height: h,
+              scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
+            });
+            scheduleRef.current();
+          }
+
+          // Render frames in a loop using setTimeout and per-frame delays.
+          let i = 0;
+          let savedImageData: ImageData | null = null;
+
+          const drawFrame = () => {
+            if (cancelled) return;
+            const frame = frames[i];
+
+            // Disposal of PREVIOUS frame was 3 (restore previous) → restore.
+            // Handled by saving before disposal-2 etc. gifuct's `disposalType`
+            // applies AFTER frame is shown. We approximate by inspecting prev.
+            const prev = frames[(i - 1 + frames.length) % frames.length];
+            if (i > 0 && prev.disposalType === 2) {
+              // Clear prev region to background (white)
+              offCtx.fillStyle = '#ffffff';
+              offCtx.fillRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height);
+            } else if (i > 0 && prev.disposalType === 3 && savedImageData) {
+              offCtx.putImageData(savedImageData, 0, 0);
+            }
+
+            if (frame.disposalType === 3) {
+              savedImageData = offCtx.getImageData(0, 0, w, h);
+            }
+
+            // Draw the new frame's patch
+            patchCanvas.width  = frame.dims.width;
+            patchCanvas.height = frame.dims.height;
+            const imageData = patchCtx.createImageData(frame.dims.width, frame.dims.height);
+            imageData.data.set(frame.patch);
+            patchCtx.putImageData(imageData, 0, 0);
+            offCtx.drawImage(patchCanvas, frame.dims.left, frame.dims.top);
+
+            (fabricImg as any).dirty = true;
+            canvas.requestRenderAll();
+
+            i = (i + 1) % frames.length;
+            const delay = Math.max(20, frame.delay || 100);
+            setTimeout(drawFrame, delay);
+          };
+
+          drawFrame();
+        } catch (err) {
+          console.error('GIF decode failed:', err);
+          // Fallback: show as static image
+          const img = new window.Image();
+          img.onload = () => {
+            const fabricImg = new fabric.Image(img, {
+              left: saved?.left ?? pos?.x ?? canvas.width!/2 - img.width/2,
+              top:  saved?.top  ?? pos?.y ?? canvas.height!/2 - img.height/2,
+              data: { id, mediaType: 'gif', url },
+            } as any);
+            canvas.add(fabricImg);
+            canvas.sendToBack(fabricImg);
+            if (!saved?.id) {
+              mediaItemsRef.current.push({
+                id, type: 'gif', url,
+                left: fabricImg.left!, top: fabricImg.top!,
+                width: img.width, height: img.height,
+                scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
+              });
+              scheduleRef.current();
+            }
+          };
+          img.src = sourceUrl;
+        }
+      })();
     };
 
     const addVideo = (
