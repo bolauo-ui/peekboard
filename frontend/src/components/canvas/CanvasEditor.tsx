@@ -104,27 +104,59 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     }, []);
 
     // ── Debounced save ───────────────────────────────────────────────────────
+    // Build the CanvasData payload directly from the current canvas state.
+    // Used by both the debounced path and the immediate flush-on-hide path.
+    const buildPayload = useCallback((): CanvasData | null => {
+      const canvas = fabricRef.current;
+      if (!canvas) return null;
+      const json = canvas.toJSON(['data', 'id', 'selectable', 'evented']);
+      const filtered = (json.objects as any[]).filter(
+        (o: any) => !['gif', 'mp4', 'webm'].includes(o?.data?.mediaType)
+      );
+      const vpt = canvas.viewportTransform
+        ? ([...canvas.viewportTransform] as CanvasData['viewport'])
+        : undefined;
+      return {
+        fabricData: { ...json, objects: filtered },
+        mediaItems: mediaItemsRef.current,
+        viewport: vpt,
+      };
+    }, []);
+
     const scheduleChange = useCallback(() => {
       if (changeTimer.current) clearTimeout(changeTimer.current);
       changeTimer.current = setTimeout(() => {
-        const canvas = fabricRef.current;
-        if (!canvas) return;
-        const json = canvas.toJSON(['data', 'id', 'selectable', 'evented']);
-        const filtered = (json.objects as any[]).filter(
-          (o: any) => !['gif', 'mp4', 'webm'].includes(o?.data?.mediaType)
-        );
-        const vpt = canvas.viewportTransform
-          ? ([...canvas.viewportTransform] as CanvasData['viewport'])
-          : undefined;
-        onCanvasChange({
-          fabricData: { ...json, objects: filtered },
-          mediaItems: mediaItemsRef.current,
-          viewport: vpt,
-        });
+        const payload = buildPayload();
+        if (!payload) return;
+        onCanvasChange(payload);
       }, 800);
     }, [onCanvasChange]);
 
     useEffect(() => { scheduleRef.current = scheduleChange; }, [scheduleChange]);
+
+    // ── Flush pending save on tab-hide / unload ──────────────────────────────
+    // The debounced save can sit for up to ~1.8s before hitting the server.
+    // If the user closes the tab inside that window their last edits are lost
+    // and a refresh restores stale state. Flushing immediately on
+    // `visibilitychange` (Chrome / Safari best-practice for "save on leave")
+    // and on `pagehide` makes sure the very latest state always gets persisted.
+    useEffect(() => {
+      const flush = () => {
+        if (changeTimer.current) {
+          clearTimeout(changeTimer.current);
+          changeTimer.current = null;
+        }
+        const payload = buildPayload();
+        if (payload) onCanvasChange(payload);
+      };
+      const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
+      window.addEventListener('pagehide',      flush);
+      document.addEventListener('visibilitychange', onVis);
+      return () => {
+        window.removeEventListener('pagehide',      flush);
+        document.removeEventListener('visibilitychange', onVis);
+      };
+    }, [buildPayload, onCanvasChange]);
 
     // ── Frame clip helper ────────────────────────────────────────────────────
     const makeClipRect = (frame: fabric.Object): fabric.Rect =>
@@ -941,12 +973,17 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
               .catch(err => console.warn('GIF upload failed; will not persist across refresh:', err));
           }
 
-          // Render frames in a loop using setTimeout and per-frame delays.
+          // ── Resilient frame loop ─────────────────────────────────────────
+          // The loop is wrapped in try/catch so a single bad frame or a
+          // transient Fabric/canvas error never kills the entire chain — we
+          // log it and schedule the next frame anyway. Without this, one
+          // throw silently breaks the recursive setTimeout and the GIF
+          // "stops playing after a while". This guarantees the animation
+          // runs forever until the GIF is removed.
           let i = 0;
           let savedImageData: ImageData | null = null;
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-          // Replace this gif's stopper with one that also clears its timer.
           gifStoppers.current.set(id, () => {
             cancelled = true;
             if (timeoutId) clearTimeout(timeoutId);
@@ -955,28 +992,33 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           const drawFrame = () => {
             if (cancelled) return;
             const frame = prerendered[i];
+            let delay = frame?.delay ?? 100;
 
-            // Disposal of PREVIOUS frame: gifuct's disposalType describes what
-            // to do AFTER the frame is shown. So we look back at frame i-1.
-            const prev = prerendered[(i - 1 + prerendered.length) % prerendered.length];
-            if (i > 0 && prev.disposalType === 2) {
-              offCtx.fillStyle = '#ffffff';
-              offCtx.fillRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height);
-            } else if (i > 0 && prev.disposalType === 3 && savedImageData) {
-              offCtx.putImageData(savedImageData, 0, 0);
+            try {
+              const prev = prerendered[(i - 1 + prerendered.length) % prerendered.length];
+              if (i > 0 && prev.disposalType === 2) {
+                offCtx.fillStyle = '#ffffff';
+                offCtx.fillRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height);
+              } else if (i > 0 && prev.disposalType === 3 && savedImageData) {
+                offCtx.putImageData(savedImageData, 0, 0);
+              }
+
+              if (frame.disposalType === 3) {
+                try { savedImageData = offCtx.getImageData(0, 0, w, h); } catch { savedImageData = null; }
+              }
+
+              offCtx.drawImage(frame.canvas, frame.dims.left, frame.dims.top);
+
+              (fabricImg as any).dirty = true;
+              // requestRenderAll can throw if Fabric is mid-dispose; ignore.
+              try { canvas.requestRenderAll(); } catch { /* canvas gone */ }
+            } catch (err) {
+              // Never let one bad frame kill the loop — log and keep going.
+              console.warn('GIF frame draw error (continuing):', err);
             }
-
-            if (frame.disposalType === 3) {
-              try { savedImageData = offCtx.getImageData(0, 0, w, h); } catch { savedImageData = null; }
-            }
-
-            offCtx.drawImage(frame.canvas, frame.dims.left, frame.dims.top);
-
-            (fabricImg as any).dirty = true;
-            canvas.requestRenderAll();
 
             i = (i + 1) % prerendered.length;
-            timeoutId = setTimeout(drawFrame, frame.delay);
+            timeoutId = setTimeout(drawFrame, delay);
           };
 
           drawFrame();

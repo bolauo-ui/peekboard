@@ -197,14 +197,15 @@ export default function Board() {
 
   const handleCanvasChange = useCallback(async (data: CanvasData) => {
     if (!id || !board || board.role === 'viewer') return;
+    // CanvasEditor already debounces at 800 ms, so we send straight to the
+    // server here. The extra 1 s debounce that used to live here blocked
+    // visibility-change flushes from ever reaching the API.
     setSaveStatus('saving');
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await boardsApi.update(id, { canvas_data: JSON.stringify(data) });
-        setSaveStatus('saved');
-      } catch { setSaveStatus('unsaved'); }
-    }, 1000);
+    try {
+      await boardsApi.update(id, { canvas_data: JSON.stringify(data) });
+      setSaveStatus('saved');
+    } catch { setSaveStatus('unsaved'); }
   }, [id, board]);
 
   const handleBackgroundChange = useCallback((color: string) => {
