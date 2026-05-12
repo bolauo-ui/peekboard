@@ -40,7 +40,6 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const mediaItemsRef = useRef<MediaItem[]>([]);
     const animFrameIds  = useRef<number[]>([]);
     const blobUrls      = useRef<string[]>([]);       // tracked for cleanup
-    const gifLastFrame  = useRef(new Map<string, number>()); // id → last render ms
     const isPanning     = useRef(false);
     const lastPtr       = useRef({ x: 0, y: 0 });
     const activeToolRef = useRef<Tool>(activeTool);
@@ -711,56 +710,65 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const addGif = (
       canvas: fabric.Canvas, url: string,
       saved?: Partial<MediaItem>, pos?: { x: number; y: number },
-      sourceFile?: File                 // local File → skip server round-trip
+      sourceFile?: File           // local File → instant display, no server round-trip
     ) => {
       const id = saved?.id ?? uuidv4();
 
-      // Use a local blob URL if a File is provided — instant, no server download
+      // Blob URL from local file = instant; server URL = loaded remotely
       const displayUrl = sourceFile
         ? (() => { const b = URL.createObjectURL(sourceFile); blobUrls.current.push(b); return b; })()
         : url;
 
-      const gc = document.createElement('canvas');
-      let img: fabric.Image | null = null;
-      const GIF_FPS = 30; // cap at 30fps to avoid overwhelming the renderer
-      const minMs   = 1000 / GIF_FPS;
+      // Use a native <img> element — the browser animates GIF frames automatically.
+      // No gifler / no main-thread decoding / no freeze.
+      const imgEl = new window.Image();
+      imgEl.crossOrigin = 'anonymous';
 
-      try {
-        (window as any).gifler(displayUrl).frames(gc, (ctx: CanvasRenderingContext2D, frame: any) => {
-          ctx.clearRect(0, 0, gc.width, gc.height);
-          ctx.drawImage(frame.buffer, frame.x, frame.y);
+      imgEl.onload = () => {
+        const w = imgEl.naturalWidth  || 200;
+        const h = imgEl.naturalHeight || 200;
 
-          if (!img) {
-            img = new fabric.Image(gc, {
-              left:   saved?.left   ?? pos?.x ?? canvas.width!  / 2 - gc.width  / 2,
-              top:    saved?.top    ?? pos?.y ?? canvas.height! / 2 - gc.height / 2,
-              scaleX: saved?.scaleX ?? 1, scaleY: saved?.scaleY ?? 1,
-              angle:  saved?.angle  ?? 0, opacity: saved?.opacity ?? 1,
-              objectCaching: false, data: { id, mediaType: 'gif', url },
-            } as any);
-            canvas.add(img); canvas.sendToBack(img);
-            if (!saved?.id) {
-              mediaItemsRef.current.push({ id, type: 'gif', url, left: img.left!, top: img.top!, width: gc.width, height: gc.height, scaleX: 1, scaleY: 1, angle: 0, opacity: 1 });
-              scheduleRef.current();
-            }
-          } else {
-            // Throttle: skip frame if too soon since last render
-            const now  = performance.now();
-            const last = gifLastFrame.current.get(id) ?? 0;
-            if (now - last < minMs) return;
-            gifLastFrame.current.set(id, now);
+        const fabricImg = new fabric.Image(imgEl as any, {
+          left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
+          top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
+          scaleX:  saved?.scaleX ?? 1,
+          scaleY:  saved?.scaleY ?? 1,
+          angle:   saved?.angle  ?? 0,
+          opacity: saved?.opacity ?? 1,
+          objectCaching: false,
+          data: { id, mediaType: 'gif', url },
+        } as any);
 
-            (img as fabric.Image).setElement(gc as any);
-            (img as fabric.Image).dirty = true;
+        canvas.add(fabricImg);
+        canvas.sendToBack(fabricImg);
+
+        if (!saved?.id) {
+          mediaItemsRef.current.push({
+            id, type: 'gif', url,
+            left: fabricImg.left!, top: fabricImg.top!,
+            width: w, height: h,
+            scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
+          });
+          scheduleRef.current();
+        }
+
+        // Poll at ~20fps — browser advances the GIF frame in the <img> element;
+        // marking dirty re-draws the current frame onto the canvas.
+        const POLL_MS = 50;
+        let last = 0;
+        const tick = (now: number) => {
+          if (now - last >= POLL_MS) {
+            last = now;
+            (fabricImg as any).dirty = true;
             canvas.requestRenderAll();
           }
-        }, true);
-      } catch {
-        fabric.Image.fromURL(url, (i) => {
-          i.set({ left: pos?.x ?? 100, top: pos?.y ?? 100, data: { id, mediaType: 'gif', url } } as any);
-          canvas.add(i); canvas.sendToBack(i);
-        }, { crossOrigin: 'anonymous' });
-      }
+          animFrameIds.current.push(requestAnimationFrame(tick));
+        };
+        animFrameIds.current.push(requestAnimationFrame(tick));
+      };
+
+      imgEl.onerror = () => console.warn('GIF failed to load:', displayUrl);
+      imgEl.src = displayUrl;
     };
 
     const addVideo = (
