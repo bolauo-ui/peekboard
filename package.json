@@ -1,15 +1,13 @@
 {
   "name": "peekboard",
   "private": true,
-  "workspaces": ["backend", "frontend"],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
-    "install:all": "npm install && npm install --workspace=backend && npm install --workspace=frontend",
-    "build": "npm run build --workspace=frontend && npm run build --workspace=backend"
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install && npm run build",
+    "start": "node backend/dist/index.js"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=9.0.0"
+    "node": ">=20.0.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
