@@ -797,7 +797,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const POLL_MS = 50;
         let last = 0;
         let cancelled = false;
-        gifStoppers.current.set(id, () => { cancelled = true; });
+        gifStoppers.current.set(id, () => {
+          cancelled = true;
+          // Remove the hidden <img> from the DOM to allow GC and stop animation
+          if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
+        });
 
         const tick = (now: number) => {
           if (cancelled) return;
@@ -816,8 +820,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
       imgEl.onerror = (e) => {
         console.error('GIF failed to load:', displayUrl, e);
+        if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
         alert('Failed to load GIF. Please try a different file.');
       };
+
+      // Attach the <img> to the DOM (hidden, off-screen) BEFORE or right after
+      // setting src.  Browsers only advance GIF animation for DOM-attached images;
+      // an off-DOM <img> stays frozen on frame 1 — which is why the GIF appeared
+      // static even though the rAF loop was running.
+      imgEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;' +
+        'opacity:0;pointer-events:none;width:1px;height:1px;';
+      document.body.appendChild(imgEl);
+
       imgEl.src = displayUrl;
     };
 
