@@ -29,6 +29,9 @@ export const authApi = {
   login: (data: { email: string; password: string }) =>
     http.post<{ token: string; user: User }>('/auth/login', data).then((r) => r.data),
 
+  google: (credential: string) =>
+    http.post<{ token: string; user: User }>('/auth/google', { credential }).then((r) => r.data),
+
   me: () => http.get<{ user: User }>('/auth/me').then((r) => r.data),
 };
 

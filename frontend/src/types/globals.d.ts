@@ -1,1 +1,7 @@
-// placeholder — gifler removed, GIF animation handled natively via <img> element
+// Vite-injected `import.meta.env` typings.
+interface ImportMetaEnv {
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
+}
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

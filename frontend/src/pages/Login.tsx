@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react';
+import { useState, useCallback, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import GoogleSignInButton from '@/components/GoogleSignInButton';
 
 export default function Login() {
   const [email,    setEmail]    = useState('');
@@ -21,6 +22,18 @@ export default function Login() {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally { setLoading(false); }
   };
+
+  // Google Sign-In callback — exchanges Google's ID token for our JWT.
+  const handleGoogle = useCallback(async (credential: string) => {
+    setError(''); setLoading(true);
+    try {
+      const { token, user } = await authApi.google(credential);
+      setAuth(user, token);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Google sign-in failed.');
+    } finally { setLoading(false); }
+  }, [navigate, setAuth]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#111111' }}>
@@ -64,6 +77,10 @@ export default function Login() {
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
+
+          {/* Google Sign-In — only renders when VITE_GOOGLE_CLIENT_ID is set. */}
+          <GoogleDivider />
+          <GoogleSignInButton onCredential={handleGoogle} onError={(err) => setError(err.message)} />
         </form>
 
         <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
@@ -80,6 +97,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="panel-label">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// "or" separator above the Google button. Hides itself when Google is not
+// configured (the GoogleSignInButton below it renders nothing in that case).
+function GoogleDivider() {
+  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null;
+  return (
+    <div className="flex items-center gap-3 mt-2">
+      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>or</span>
+      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
     </div>
   );
 }

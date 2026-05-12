@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react';
+import { useState, useCallback, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import GoogleSignInButton from '@/components/GoogleSignInButton';
 
 export default function Signup() {
   const [name,     setName]     = useState('');
@@ -24,6 +25,17 @@ export default function Signup() {
       setError(err.response?.data?.error || 'Sign up failed. Please try again.');
     } finally { setLoading(false); }
   };
+
+  const handleGoogle = useCallback(async (credential: string) => {
+    setError(''); setLoading(true);
+    try {
+      const { token, user } = await authApi.google(credential);
+      setAuth(user, token);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Google sign-up failed.');
+    } finally { setLoading(false); }
+  }, [navigate, setAuth]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#111111' }}>
@@ -70,6 +82,10 @@ export default function Signup() {
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
             {loading ? 'Creating account…' : 'Create account'}
           </button>
+
+          <GoogleDivider />
+          <GoogleSignInButton onCredential={handleGoogle} onError={(err) => setError(err.message)} />
+
           <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>By signing up, you agree to our Terms of Service.</p>
         </form>
 
@@ -87,6 +103,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="panel-label">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function GoogleDivider() {
+  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null;
+  return (
+    <div className="flex items-center gap-3 mt-2">
+      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>or</span>
+      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
     </div>
   );
 }

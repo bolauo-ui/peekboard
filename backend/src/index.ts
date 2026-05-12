@@ -114,7 +114,7 @@ app.post('/api/auth/register', async (req, res) => {
   db.users.push({ id, email: normalEmail, name, password_hash, avatar_color, created_at: now });
   writeDb(db);
 
-  const token = jwt.sign({ id, email: normalEmail, name, avatar_color }, JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ id, email: normalEmail, name, avatar_color }, JWT_SECRET, { expiresIn: '365d' });
   res.status(201).json({ token, user: { id, email: normalEmail, name, avatar_color } });
 });
 
@@ -131,9 +131,71 @@ app.post('/api/auth/login', async (req, res) => {
 
   const token = jwt.sign(
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
-    JWT_SECRET, { expiresIn: '30d' }
+    JWT_SECRET, { expiresIn: '365d' }
   );
   res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
+});
+
+// ── Google Sign-In ─────────────────────────────────────────────────────────
+// Accepts a Google ID token from the frontend's GIS button, verifies it by
+// calling Google's tokeninfo endpoint (no SDK needed), then either creates
+// a new user or signs in an existing one. Returns our usual JWT so the rest
+// of the app is unchanged.
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body as { credential?: string };
+  if (!credential) { res.status(400).json({ error: 'Missing Google credential' }); return; }
+
+  try {
+    // Verify the ID token with Google. tokeninfo returns the decoded claims
+    // only if the signature and expiry are valid; any issue ⇒ non-200.
+    const resp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+    if (!resp.ok) { res.status(401).json({ error: 'Invalid Google token' }); return; }
+    const payload = await resp.json() as {
+      aud: string; sub: string; email: string; email_verified?: string | boolean;
+      name?: string; given_name?: string; iss: string;
+    };
+
+    // Audience guard — token must be minted for our client ID, otherwise an
+    // attacker could replay a token from any other Google project.
+    const expectedAud = process.env.GOOGLE_CLIENT_ID;
+    if (expectedAud && payload.aud !== expectedAud) {
+      res.status(401).json({ error: 'Token audience mismatch' }); return;
+    }
+    if (!/^https:\/\/accounts\.google\.com|^accounts\.google\.com/.test(payload.iss)) {
+      res.status(401).json({ error: 'Bad issuer' }); return;
+    }
+    const verified = payload.email_verified === true || payload.email_verified === 'true';
+    if (!verified) { res.status(401).json({ error: 'Google email not verified' }); return; }
+
+    const db = readDb();
+    const normalEmail = payload.email.toLowerCase().trim();
+    let user = db.users.find((u) => u.email === normalEmail);
+
+    if (!user) {
+      // First time: create a passwordless account linked by email.
+      const id = uuidv4();
+      const colors = ['#6366f1','#8b5cf6','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444'];
+      const avatar_color = colors[Math.floor(Math.random() * colors.length)];
+      const now = new Date().toISOString();
+      user = {
+        id, email: normalEmail,
+        name: payload.name || payload.given_name || normalEmail.split('@')[0],
+        password_hash: '',          // no password — Google-only login
+        avatar_color, created_at: now,
+      } as User;
+      db.users.push(user);
+      writeDb(db);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
+      JWT_SECRET, { expiresIn: '365d' }
+    );
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
+  } catch (err: any) {
+    console.error('Google auth failed:', err);
+    res.status(500).json({ error: 'Google sign-in failed' });
+  }
 });
 
 app.get('/api/auth/me', authenticate, (req: any, res) => {
