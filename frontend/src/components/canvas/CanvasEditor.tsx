@@ -15,6 +15,11 @@ export interface CanvasEditorHandle {
   redo:  () => void;
   copy:  () => void;
   paste: () => void;
+  zoomIn:     () => void;
+  zoomOut:    () => void;
+  zoomTo:     (level: number) => void;       // e.g. 0.5, 1, 2
+  zoomToFit:  () => void;
+  getZoom:    () => number;
 }
 
 interface Props {
@@ -27,6 +32,7 @@ interface Props {
   onBackgroundChange?: (color: string) => void;
   onToolChange?:       (t: Tool) => void;
   onLayersChange?:     () => void;
+  onZoomChange?:       (zoom: number) => void;
   uploadFn?:           (file: File) => Promise<{ url: string; mimetype: string }>;
 }
 
@@ -34,7 +40,7 @@ const DEFAULT_BG = '#f0f0f0';
 
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
   ({ board, activeTool, role, onObjectSelect, onCanvasChange, onCanvasReady,
-     onBackgroundChange, onToolChange, onLayersChange, uploadFn }, ref) => {
+     onBackgroundChange, onToolChange, onLayersChange, onZoomChange, uploadFn }, ref) => {
 
     const canvasElRef   = useRef<HTMLCanvasElement>(null);
     const wrapperRef    = useRef<HTMLDivElement>(null);
@@ -288,6 +294,66 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           scheduleRef.current(); pushHistory();
         });
       },
+      // ── Zoom ─────────────────────────────────────────────────────────────
+      // All zooms anchor on the canvas centre so the user's view stays put.
+      zoomIn:  () => {
+        const c = fabricRef.current; if (!c) return;
+        const z = Math.min(c.getZoom() * 1.2, 8);
+        const cx = c.getWidth()  / 2;
+        const cy = c.getHeight() / 2;
+        c.zoomToPoint(new fabric.Point(cx, cy), z);
+        onZoomChange?.(z);
+      },
+      zoomOut: () => {
+        const c = fabricRef.current; if (!c) return;
+        const z = Math.max(c.getZoom() / 1.2, 0.05);
+        const cx = c.getWidth()  / 2;
+        const cy = c.getHeight() / 2;
+        c.zoomToPoint(new fabric.Point(cx, cy), z);
+        onZoomChange?.(z);
+      },
+      zoomTo: (level: number) => {
+        const c = fabricRef.current; if (!c) return;
+        const z = Math.max(0.05, Math.min(level, 8));
+        const cx = c.getWidth()  / 2;
+        const cy = c.getHeight() / 2;
+        c.zoomToPoint(new fabric.Point(cx, cy), z);
+        onZoomChange?.(z);
+      },
+      zoomToFit: () => {
+        const c = fabricRef.current; if (!c) return;
+        const objs = c.getObjects();
+        const vw = c.getWidth();
+        const vh = c.getHeight();
+        if (!objs.length) {
+          c.setViewportTransform([1, 0, 0, 1, 0, 0]);
+          onZoomChange?.(1);
+          c.requestRenderAll();
+          return;
+        }
+        // Compute bbox of all objects in canvas-space
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        objs.forEach(o => {
+          const r = o.getBoundingRect(true, true);
+          minX = Math.min(minX, r.left);
+          minY = Math.min(minY, r.top);
+          maxX = Math.max(maxX, r.left + r.width);
+          maxY = Math.max(maxY, r.top  + r.height);
+        });
+        const bw = maxX - minX;
+        const bh = maxY - minY;
+        const pad = 40;
+        const zx = (vw - pad * 2) / bw;
+        const zy = (vh - pad * 2) / bh;
+        const z  = Math.max(0.05, Math.min(zx, zy, 8));
+        // Translate so bbox centre lands at viewport centre
+        const tx = vw / 2 - (minX + bw / 2) * z;
+        const ty = vh / 2 - (minY + bh / 2) * z;
+        c.setViewportTransform([z, 0, 0, z, tx, ty]);
+        onZoomChange?.(z);
+        c.requestRenderAll();
+      },
+      getZoom: () => fabricRef.current?.getZoom() ?? 1,
     }));
 
     // ── Add static image by URL ──────────────────────────────────────────────
@@ -360,6 +426,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         let zoom = canvas.getZoom() * (0.999 ** opt.e.deltaY);
         zoom = Math.max(0.05, Math.min(zoom, 8));
         canvas.zoomToPoint(new fabric.Point(opt.e.offsetX, opt.e.offsetY), zoom);
+        onZoomChange?.(zoom);
         opt.e.preventDefault(); opt.e.stopPropagation();
       });
 

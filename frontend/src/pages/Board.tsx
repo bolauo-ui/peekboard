@@ -11,6 +11,7 @@ import PropertiesPanel from '@/components/canvas/PropertiesPanel';
 import LayerPanel from '@/components/LayerPanel';
 import ShareModal from '@/components/ShareModal';
 import CommentsPanel from '@/components/CommentsPanel';
+import ZoomControl from '@/components/canvas/ZoomControl';
 
 export default function Board() {
   const { id } = useParams<{ id: string }>();
@@ -32,6 +33,7 @@ export default function Board() {
   const [showLayers,   setShowLayers]   = useState(true);
   const [layerVersion, setLayerVersion] = useState(0);
   const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
+  const [zoom,         setZoom]         = useState(1);
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +114,24 @@ export default function Board() {
       // (image/SVG from clipboard OR internal fabric clipboard)
       // We intentionally skip meta+v here so CanvasEditor's paste handler
       // handles it exclusively, avoiding double-paste.
+
+      // ── Zoom shortcuts ───────────────────────────────────────────────────
+      // Cmd/Ctrl + '+' or '=' → zoom in
+      if (meta && (e.key === '+' || e.key === '=')) {
+        e.preventDefault(); editorRef.current?.zoomIn(); return;
+      }
+      // Cmd/Ctrl + '-' → zoom out
+      if (meta && (e.key === '-' || e.key === '_')) {
+        e.preventDefault(); editorRef.current?.zoomOut(); return;
+      }
+      // Cmd/Ctrl + '0' → 100%
+      if (meta && e.key === '0') {
+        e.preventDefault(); editorRef.current?.zoomTo(1); return;
+      }
+      // Shift + '1' → zoom to fit
+      if (!meta && e.shiftKey && e.key === '!') {
+        e.preventDefault(); editorRef.current?.zoomToFit(); return;
+      }
 
       // ── Duplicate (Cmd+D) ────────────────────────────────────────────────
       if (meta && e.key === 'd') {
@@ -323,6 +343,7 @@ export default function Board() {
             onBackgroundChange={setBgColor}
             onToolChange={setActiveTool}
             onLayersChange={() => setLayerVersion(v => v + 1)}
+            onZoomChange={setZoom}
             uploadFn={(file) => uploadApi.upload(file)}
           />
           <div
@@ -331,6 +352,13 @@ export default function Board() {
           >
             Scroll to zoom · Space+drag to pan
           </div>
+          <ZoomControl
+            zoom={zoom}
+            onZoomIn={()  => editorRef.current?.zoomIn()}
+            onZoomOut={() => editorRef.current?.zoomOut()}
+            onZoomTo={(l) => editorRef.current?.zoomTo(l)}
+            onZoomToFit={() => editorRef.current?.zoomToFit()}
+          />
         </div>
 
         {showProps && (
