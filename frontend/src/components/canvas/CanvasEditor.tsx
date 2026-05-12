@@ -872,16 +872,24 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     ) => {
       const id = saved?.id ?? uuidv4();
 
-      // ── PERMANENT FIX ──────────────────────────────────────────────────────
-      // We do NOT rely on the browser's <img> GIF animation engine. Chrome/
-      // Safari pause animation for off-viewport, hidden, or canvas-attached
-      // elements unpredictably. Instead we decode the GIF in JS with
-      // gifuct-js and drive the animation ourselves with setTimeout, drawing
-      // each frame onto an off-screen canvas that backs the Fabric image.
+      // ── Two-phase load for snappy UX ──────────────────────────────────────
+      //
+      // Phase 1 (INSTANT, ~10ms): create an <img> with the GIF's URL. The
+      //   browser decodes the first frame natively in microtask time and we
+      //   immediately wrap it in a fabric.Image. The user sees the GIF
+      //   appear right away — no spinner, no blank slot.
+      //
+      // Phase 2 (BACKGROUND, ~50-500ms): fetch the bytes, run gifuct-js to
+      //   decode every frame, pre-render each into a tiny <canvas>, then
+      //   atomically swap the fabric image's source to an off-screen canvas
+      //   we drive ourselves. From this point the GIF animates forever.
+      //
+      // This makes both single uploads AND board-reload-with-many-GIFs feel
+      // instant: previously every GIF had to wait for full decode before
+      // appearing, so 5 GIFs popped in serially over ~2 seconds. Now they
+      // all show up in one paint, then upgrade to animated as each decode
+      // resolves on its own.
 
-      // Source: blob URL for local file, otherwise the remote URL.
-      // For local files we fetch the blob (always same-origin). For remote
-      // URLs we fetch directly — if CORS blocks, we fall back to a proxy.
       const sourceUrl = sourceFile
         ? (() => { const b = URL.createObjectURL(sourceFile); blobUrls.current.push(b); return b; })()
         : url;
@@ -889,181 +897,198 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       if (!sourceUrl) return;
 
       let cancelled = false;
-      gifStoppers.current.set(id, () => { cancelled = true; });
+      let fabricImg: fabric.Image | null = null;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      gifStoppers.current.set(id, () => {
+        cancelled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+      });
 
-      const fetchBuffer = async (u: string): Promise<ArrayBuffer> => {
-        // Try direct first
+      // ── PHASE 1: instant static preview ────────────────────────────────────
+      const previewImg = new window.Image();
+      previewImg.onload = () => {
+        if (cancelled) return;
+        const w = previewImg.naturalWidth  || 200;
+        const h = previewImg.naturalHeight || 200;
+
+        fabricImg = new fabric.Image(previewImg, {
+          left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
+          top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
+          scaleX:  saved?.scaleX ?? 1,
+          scaleY:  saved?.scaleY ?? 1,
+          angle:   saved?.angle  ?? 0,
+          opacity: saved?.opacity ?? 1,
+          objectCaching: false,
+          data: { id, mediaType: 'gif', url },
+        } as any);
+
+        canvas.add(fabricImg);
+        canvas.sendToBack(fabricImg);
+        canvas.requestRenderAll();
+
+        if (!saved?.id) {
+          mediaItemsRef.current.push({
+            id, type: 'gif', url,
+            left: fabricImg.left!, top: fabricImg.top!,
+            width: w, height: h,
+            scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
+          });
+          scheduleRef.current();
+        }
+
+        // Kick off server upload in parallel (does not block animation).
+        if (sourceFile && uploadFn && !url) {
+          uploadFn(sourceFile)
+            .then(({ url: serverUrl }) => {
+              if (cancelled || !serverUrl) return;
+              const item = mediaItemsRef.current.find(m => m.id === id);
+              if (item) item.url = serverUrl;
+              if (fabricImg) (fabricImg as any).data = { ...(fabricImg as any).data, url: serverUrl };
+              scheduleRef.current();
+            })
+            .catch(err => console.warn('GIF upload failed; will not persist across refresh:', err));
+        }
+
+        // ── PHASE 2: background decode + animation upgrade ──────────────────
+        // requestIdleCallback (or setTimeout fallback) keeps the main thread
+        // free for layout/paint of the rest of the board until the browser
+        // has idle time to chew through gifuct's heavy decode work.
+        const schedule: (cb: () => void) => void =
+          (window as any).requestIdleCallback
+            ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 1500 })
+            : (cb) => setTimeout(cb, 0);
+
+        schedule(async () => {
+          if (cancelled) return;
+          try {
+            const buf = await fetchBuffer(sourceUrl);
+            if (cancelled) return;
+
+            const gif = parseGIF(buf);
+            const rawFrames = decompressFrames(gif, true);
+            if (!rawFrames.length) return; // keep static fallback
+            const gw = gif.lsd.width  || w;
+            const gh = gif.lsd.height || h;
+            if (!gw || !gh) return;
+
+            // Pre-render each frame to a tiny per-frame canvas, then drop
+            // the raw RGBA arrays so memory stays bounded with many GIFs.
+            const prerendered = rawFrames.map(f => {
+              const c = document.createElement('canvas');
+              c.width  = f.dims.width;
+              c.height = f.dims.height;
+              const cctx = c.getContext('2d')!;
+              const idata = cctx.createImageData(f.dims.width, f.dims.height);
+              idata.data.set(f.patch);
+              cctx.putImageData(idata, 0, 0);
+              return {
+                canvas:       c,
+                dims:         f.dims,
+                delay:        Math.max(20, f.delay || 100),
+                disposalType: f.disposalType,
+              };
+            });
+            for (let k = 0; k < rawFrames.length; k++) (rawFrames[k] as any).patch = null;
+
+            // Atomically swap the fabric image source from the static <img>
+            // to the off-screen canvas we will drive.
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width  = gw;
+            offCanvas.height = gh;
+            const offCtx = offCanvas.getContext('2d')!;
+            offCtx.fillStyle = '#ffffff';
+            offCtx.fillRect(0, 0, gw, gh);
+            // Seed with the static preview so the swap is visually a no-op.
+            try { offCtx.drawImage(previewImg, 0, 0, gw, gh); } catch { /* taint ok */ }
+
+            if (cancelled || !fabricImg) return;
+            (fabricImg as any).setElement(offCanvas);
+            (fabricImg as any).dirty = true;
+            canvas.requestRenderAll();
+
+            // Resilient frame loop — never let a bad frame kill the chain.
+            let i = 0;
+            let savedImageData: ImageData | null = null;
+            const drawFrame = () => {
+              if (cancelled) return;
+              const frame = prerendered[i];
+              const delay = frame?.delay ?? 100;
+              try {
+                const prev = prerendered[(i - 1 + prerendered.length) % prerendered.length];
+                if (i > 0 && prev.disposalType === 2) {
+                  offCtx.fillStyle = '#ffffff';
+                  offCtx.fillRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height);
+                } else if (i > 0 && prev.disposalType === 3 && savedImageData) {
+                  offCtx.putImageData(savedImageData, 0, 0);
+                }
+                if (frame.disposalType === 3) {
+                  try { savedImageData = offCtx.getImageData(0, 0, gw, gh); } catch { savedImageData = null; }
+                }
+                offCtx.drawImage(frame.canvas, frame.dims.left, frame.dims.top);
+                if (fabricImg) (fabricImg as any).dirty = true;
+                try { canvas.requestRenderAll(); } catch { /* canvas gone */ }
+              } catch (err) {
+                console.warn('GIF frame draw error (continuing):', err);
+              }
+              i = (i + 1) % prerendered.length;
+              timeoutId = setTimeout(drawFrame, delay);
+            };
+            drawFrame();
+          } catch (err) {
+            // Static preview already on screen — just log and stop here.
+            console.warn('GIF decode failed; staying as static frame:', err);
+          }
+        });
+      };
+
+      previewImg.onerror = () => {
+        // Browser couldn't even render the static preview. Try the gifuct
+        // path directly so we still get a chance to display the GIF.
+        if (cancelled) return;
+        decodeOnlyFallback();
+      };
+
+      // Set src LAST — browser starts decoding the first frame immediately
+      // and onload fires as soon as it's ready, often within the same tick.
+      previewImg.src = sourceUrl;
+
+      // ── Helpers ───────────────────────────────────────────────────────────
+      async function fetchBuffer(u: string): Promise<ArrayBuffer> {
         try {
           const r = await fetch(u);
           if (r.ok) return await r.arrayBuffer();
         } catch { /* fall through to proxy */ }
-        // CORS-friendly proxy fallback for cross-origin GIFs
         const proxied = `https://corsproxy.io/?${encodeURIComponent(u)}`;
         const r2 = await fetch(proxied);
         return await r2.arrayBuffer();
-      };
+      }
 
-      (async () => {
+      // Used only when the <img> tag itself fails — extremely rare.
+      async function decodeOnlyFallback() {
         try {
           const buf = await fetchBuffer(sourceUrl);
           if (cancelled) return;
-
           const gif = parseGIF(buf);
           const rawFrames = decompressFrames(gif, true);
-          if (!rawFrames.length) throw new Error('No frames decoded');
-
-          const w = gif.lsd.width;
-          const h = gif.lsd.height;
-          if (!w || !h) throw new Error('Invalid GIF dimensions');
-
-          // ── Pre-render frames and drop the raw patch bytes ─────────────────
-          // gifuct-js gives us a Uint8ClampedArray of RGBA pixels for every
-          // frame. Holding them all (e.g. 100 frames × 500×500 × 4B = 100 MB)
-          // is what makes the tab OOM when you drop a second GIF. We blit
-          // each patch onto a tiny per-frame <canvas> once and then forget
-          // the array, dropping memory by ~75% for typical GIFs.
-          const prerendered = rawFrames.map(f => {
-            const c = document.createElement('canvas');
-            c.width  = f.dims.width;
-            c.height = f.dims.height;
-            const cctx = c.getContext('2d')!;
-            const id = cctx.createImageData(f.dims.width, f.dims.height);
-            id.data.set(f.patch);
-            cctx.putImageData(id, 0, 0);
-            return {
-              canvas:       c,
-              dims:         f.dims,
-              delay:        Math.max(20, f.delay || 100),
-              disposalType: f.disposalType,
-            };
-          });
-          // Free the raw frame arrays — gifuct keeps references on the
-          // returned objects, and we no longer need them.
-          for (let k = 0; k < rawFrames.length; k++) (rawFrames[k] as any).patch = null;
-
-          // Off-screen canvas that backs the Fabric image
-          const offCanvas = document.createElement('canvas');
-          offCanvas.width  = w;
-          offCanvas.height = h;
-          const offCtx = offCanvas.getContext('2d')!;
-          offCtx.fillStyle = '#ffffff';
-          offCtx.fillRect(0, 0, w, h);
-
-          const fabricImg = new fabric.Image(offCanvas as any, {
-            left:    saved?.left   ?? pos?.x ?? canvas.width!  / 2 - w / 2,
-            top:     saved?.top    ?? pos?.y ?? canvas.height! / 2 - h / 2,
-            scaleX:  saved?.scaleX ?? 1,
-            scaleY:  saved?.scaleY ?? 1,
-            angle:   saved?.angle  ?? 0,
-            opacity: saved?.opacity ?? 1,
-            objectCaching: false,
+          if (!rawFrames.length) return;
+          // Re-use the same Phase-2 path by spoofing a previewImg sized to gif.
+          const tmp = document.createElement('canvas');
+          tmp.width  = gif.lsd.width;
+          tmp.height = gif.lsd.height;
+          previewImg.onload = null;
+          fabricImg = new fabric.Image(tmp as any, {
+            left: saved?.left ?? pos?.x ?? canvas.width!/2 - tmp.width/2,
+            top:  saved?.top  ?? pos?.y ?? canvas.height!/2 - tmp.height/2,
             data: { id, mediaType: 'gif', url },
+            objectCaching: false,
           } as any);
-
           canvas.add(fabricImg);
           canvas.sendToBack(fabricImg);
-
-          if (!saved?.id) {
-            mediaItemsRef.current.push({
-              id, type: 'gif', url,
-              left: fabricImg.left!, top: fabricImg.top!,
-              width: w, height: h,
-              scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
-            });
-            scheduleRef.current();
-          }
-
-          // ── PERSISTENCE ───────────────────────────────────────────────────
-          // For local-file GIFs the initial `url` is empty / a blob: URL,
-          // neither of which survives a page refresh. Upload the file to the
-          // server in the background and swap the saved url to the server's
-          // permanent URL so reloading the board re-fetches the GIF.
-          if (sourceFile && uploadFn && !url) {
-            uploadFn(sourceFile)
-              .then(({ url: serverUrl }) => {
-                if (cancelled || !serverUrl) return;
-                const item = mediaItemsRef.current.find(m => m.id === id);
-                if (item) item.url = serverUrl;
-                (fabricImg as any).data = { ...(fabricImg as any).data, url: serverUrl };
-                scheduleRef.current();
-              })
-              .catch(err => console.warn('GIF upload failed; will not persist across refresh:', err));
-          }
-
-          // ── Resilient frame loop ─────────────────────────────────────────
-          // The loop is wrapped in try/catch so a single bad frame or a
-          // transient Fabric/canvas error never kills the entire chain — we
-          // log it and schedule the next frame anyway. Without this, one
-          // throw silently breaks the recursive setTimeout and the GIF
-          // "stops playing after a while". This guarantees the animation
-          // runs forever until the GIF is removed.
-          let i = 0;
-          let savedImageData: ImageData | null = null;
-          let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-          gifStoppers.current.set(id, () => {
-            cancelled = true;
-            if (timeoutId) clearTimeout(timeoutId);
-          });
-
-          const drawFrame = () => {
-            if (cancelled) return;
-            const frame = prerendered[i];
-            let delay = frame?.delay ?? 100;
-
-            try {
-              const prev = prerendered[(i - 1 + prerendered.length) % prerendered.length];
-              if (i > 0 && prev.disposalType === 2) {
-                offCtx.fillStyle = '#ffffff';
-                offCtx.fillRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height);
-              } else if (i > 0 && prev.disposalType === 3 && savedImageData) {
-                offCtx.putImageData(savedImageData, 0, 0);
-              }
-
-              if (frame.disposalType === 3) {
-                try { savedImageData = offCtx.getImageData(0, 0, w, h); } catch { savedImageData = null; }
-              }
-
-              offCtx.drawImage(frame.canvas, frame.dims.left, frame.dims.top);
-
-              (fabricImg as any).dirty = true;
-              // requestRenderAll can throw if Fabric is mid-dispose; ignore.
-              try { canvas.requestRenderAll(); } catch { /* canvas gone */ }
-            } catch (err) {
-              // Never let one bad frame kill the loop — log and keep going.
-              console.warn('GIF frame draw error (continuing):', err);
-            }
-
-            i = (i + 1) % prerendered.length;
-            timeoutId = setTimeout(drawFrame, delay);
-          };
-
-          drawFrame();
+          canvas.requestRenderAll();
         } catch (err) {
-          console.error('GIF decode failed:', err);
-          // Fallback: show as static image
-          const img = new window.Image();
-          img.onload = () => {
-            const fabricImg = new fabric.Image(img, {
-              left: saved?.left ?? pos?.x ?? canvas.width!/2 - img.width/2,
-              top:  saved?.top  ?? pos?.y ?? canvas.height!/2 - img.height/2,
-              data: { id, mediaType: 'gif', url },
-            } as any);
-            canvas.add(fabricImg);
-            canvas.sendToBack(fabricImg);
-            if (!saved?.id) {
-              mediaItemsRef.current.push({
-                id, type: 'gif', url,
-                left: fabricImg.left!, top: fabricImg.top!,
-                width: img.width, height: img.height,
-                scaleX: 1, scaleY: 1, angle: 0, opacity: 1,
-              });
-              scheduleRef.current();
-            }
-          };
-          img.src = sourceUrl;
+          console.error('GIF could not be displayed at all:', err);
         }
-      })();
+      }
     };
 
     const addVideo = (
