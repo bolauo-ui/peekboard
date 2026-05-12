@@ -93,8 +93,13 @@ export default function CommentsOverlay({
   const [openPinId, setOpenPinId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!canvas) return;
-    if (activeTool !== 'comment') { setPending(null); return; }
+    if (!canvas || activeTool !== 'comment') return;
+    // Only attach the click-to-drop handler while comment mode is active.
+    // We deliberately do NOT clear `pending` when activeTool flips away from
+    // 'comment' — dropping a pin auto-switches to 'select', and that
+    // transition used to nuke the pending pin and its popover before the
+    // user could type anything. The pending pin is cleared only by submit
+    // or by the popover's explicit cancel (X / Escape).
     const onDown = (opt: fabric.IEvent) => {
       const ptr = canvas.getPointer((opt as any).e);
       setPending({ x: Math.round(ptr.x), y: Math.round(ptr.y) });
