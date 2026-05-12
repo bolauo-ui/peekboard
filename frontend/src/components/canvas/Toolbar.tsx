@@ -7,7 +7,7 @@ interface Props {
   activeTool: Tool;
   onToolChange: (t: Tool) => void;
   onAddText: () => void;
-  onMediaAdded: (url: string, mimeType: string) => void;
+  onMediaAdded: (url: string, mimeType: string, file?: File) => void;
   onExport: () => void;
   role: string;
   boardName: string;
@@ -45,6 +45,16 @@ export default function Toolbar({
     const file = e.target.files?.[0];
     if (!file || uploadingRef.current) return;
     uploadingRef.current = true;
+
+    // GIFs: pass the File object directly so CanvasEditor can use a local blob URL
+    // — instant display with no server round-trip freeze
+    if (file.type === 'image/gif') {
+      onMediaAdded('__gif_file__', 'image/gif', file);
+      uploadingRef.current = false;
+      e.target.value = '';
+      return;
+    }
+
     try {
       const result = await uploadApi.upload(file);
       onMediaAdded(result.url, result.mimetype);

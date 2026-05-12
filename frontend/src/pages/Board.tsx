@@ -224,7 +224,7 @@ export default function Board() {
         activeTool={activeTool}
         onToolChange={setActiveTool}
         onAddText={() => { editorRef.current?.addText(); setActiveTool('select'); }}
-        onMediaAdded={(url, mime) => editorRef.current?.addMedia(url, mime)}
+        onMediaAdded={(url, mime, file) => editorRef.current?.addMedia(url, mime, file)}
         onExport={handleExport}
         role={board.role}
         boardName={board.name}

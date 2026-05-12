@@ -4,7 +4,7 @@ import type { Board, MediaItem, CanvasData, Tool } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CanvasEditorHandle {
-  addMedia:      (url: string, mimeType: string) => void;
+  addMedia:      (url: string, mimeType: string, file?: File) => void;
   addText:       () => void;
   exportFrame:   () => string;
   getCanvas:     () => fabric.Canvas | null;
@@ -39,6 +39,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const fabricRef     = useRef<fabric.Canvas | null>(null);
     const mediaItemsRef = useRef<MediaItem[]>([]);
     const animFrameIds  = useRef<number[]>([]);
+    const blobUrls      = useRef<string[]>([]);       // tracked for cleanup
+    const gifLastFrame  = useRef(new Map<string, number>()); // id → last render ms
     const isPanning     = useRef(false);
     const lastPtr       = useRef({ x: 0, y: 0 });
     const activeToolRef = useRef<Tool>(activeTool);
@@ -228,10 +230,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
     // ── Imperative handle ────────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
-      addMedia: (url, mimeType) => {
+      addMedia: (url, mimeType, file) => {
         if (!fabricRef.current) return;
-        const t = mimeType === 'image/gif' ? 'gif' : mimeType === 'video/webm' ? 'webm' : 'mp4';
-        addMediaFn(fabricRef.current, url, t);
+        if (mimeType === 'image/gif') {
+          addGif(fabricRef.current, url, undefined, undefined, file);
+        } else {
+          const t = mimeType === 'video/webm' ? 'webm' : 'mp4';
+          addMediaFn(fabricRef.current, url, t);
+        }
       },
       addText:     () => { if (fabricRef.current) addTextAtCenter(fabricRef.current); },
       exportFrame: () => fabricRef.current?.toDataURL({ format: 'png', multiplier: 1 }) ?? '',
@@ -586,6 +592,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         animFrameIds.current.forEach(cancelAnimationFrame);
         animFrameIds.current = [];
         if (changeTimer.current) clearTimeout(changeTimer.current);
+        blobUrls.current.forEach(u => URL.revokeObjectURL(u));
+        blobUrls.current = [];
         canvas.dispose();
         fabricRef.current = null;
       };
@@ -702,15 +710,26 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
     const addGif = (
       canvas: fabric.Canvas, url: string,
-      saved?: Partial<MediaItem>, pos?: { x: number; y: number }
+      saved?: Partial<MediaItem>, pos?: { x: number; y: number },
+      sourceFile?: File                 // local File → skip server round-trip
     ) => {
       const id = saved?.id ?? uuidv4();
+
+      // Use a local blob URL if a File is provided — instant, no server download
+      const displayUrl = sourceFile
+        ? (() => { const b = URL.createObjectURL(sourceFile); blobUrls.current.push(b); return b; })()
+        : url;
+
       const gc = document.createElement('canvas');
       let img: fabric.Image | null = null;
+      const GIF_FPS = 30; // cap at 30fps to avoid overwhelming the renderer
+      const minMs   = 1000 / GIF_FPS;
+
       try {
-        (window as any).gifler(url).frames(gc, (ctx: CanvasRenderingContext2D, frame: any) => {
+        (window as any).gifler(displayUrl).frames(gc, (ctx: CanvasRenderingContext2D, frame: any) => {
           ctx.clearRect(0, 0, gc.width, gc.height);
           ctx.drawImage(frame.buffer, frame.x, frame.y);
+
           if (!img) {
             img = new fabric.Image(gc, {
               left:   saved?.left   ?? pos?.x ?? canvas.width!  / 2 - gc.width  / 2,
@@ -725,6 +744,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
               scheduleRef.current();
             }
           } else {
+            // Throttle: skip frame if too soon since last render
+            const now  = performance.now();
+            const last = gifLastFrame.current.get(id) ?? 0;
+            if (now - last < minMs) return;
+            gifLastFrame.current.set(id, now);
+
             (img as fabric.Image).setElement(gc as any);
             (img as fabric.Image).dirty = true;
             canvas.requestRenderAll();
@@ -804,11 +829,17 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       if (e.dataTransfer.files.length > 0) {
         for (const file of Array.from(e.dataTransfer.files)) {
           if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
+
+          // GIFs: display instantly from local blob — no server round-trip needed for rendering
+          if (file.type === 'image/gif') {
+            addGif(canvas, '', undefined, { x: dropX, y: dropY }, file);
+            continue;
+          }
+
           if (uploadFnRef.current) {
             try {
               const r  = await uploadFnRef.current(file);
-              const t  = r.mimetype === 'image/gif'  ? 'gif'
-                       : r.mimetype === 'video/webm' ? 'webm'
+              const t  = r.mimetype === 'video/webm' ? 'webm'
                        : r.mimetype === 'video/mp4'  ? 'mp4' : null;
               if (t) addMediaFn(canvas, r.url, t as any, undefined, { x: dropX, y: dropY });
               else   addImageUrl(canvas, r.url, { x: dropX, y: dropY });
