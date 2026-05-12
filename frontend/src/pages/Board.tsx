@@ -97,6 +97,16 @@ export default function Board() {
         return;
       }
 
+      // ── Save (Cmd/Ctrl + S) ──────────────────────────────────────────────
+      // Browsers default Cmd+S to "Save Page As… .html" which dumps the
+      // current document to the user's desktop. We intercept it and route
+      // it to our own server-side save instead.
+      if (meta && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        editorRef.current?.flushSave();
+        return;
+      }
+
       // ── Undo / Redo ──────────────────────────────────────────────────────
       if (meta && e.key === 'z' && !e.shiftKey) {
         e.preventDefault(); editorRef.current?.undo(); return;
@@ -345,6 +355,10 @@ export default function Board() {
             onToolChange={setActiveTool}
             onLayersChange={() => setLayerVersion(v => v + 1)}
             onZoomChange={setZoom}
+            onCanvasChangeKeepAlive={(data) => {
+              if (!id || !board || board.role === 'viewer') return;
+              boardsApi.updateKeepAlive(id, { canvas_data: JSON.stringify(data) });
+            }}
             uploadFn={(file) => uploadApi.upload(file)}
           />
           <div

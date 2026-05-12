@@ -44,6 +44,23 @@ export const boardsApi = {
   update: (id: string, data: Partial<{ name: string; canvas_data: string; width: number; height: number }>) =>
     http.put<{ success: boolean }>(`/boards/${id}`, data).then((r) => r.data),
 
+  // Fire-and-forget save that survives a tab close. fetch with keepalive:true
+  // tells the browser to keep the request alive even after the document is
+  // unloaded — this is what makes pagehide / visibilitychange flushes
+  // reliable instead of being aborted mid-flight. Capped at ~64 KB by spec.
+  updateKeepAlive: (id: string, data: Partial<{ name: string; canvas_data: string; width: number; height: number }>) => {
+    const token = localStorage.getItem('mb_token');
+    return fetch(`/api/boards/${id}`, {
+      method:    'PUT',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+  },
+
   delete: (id: string) => http.delete<{ success: boolean }>(`/boards/${id}`).then((r) => r.data),
 };
 

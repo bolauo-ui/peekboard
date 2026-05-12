@@ -15,6 +15,7 @@ export interface CanvasEditorHandle {
   redo:  () => void;
   copy:  () => void;
   paste: () => void;
+  flushSave: () => void;     // immediate save (Cmd+S, manual)
   zoomIn:     () => void;
   zoomOut:    () => void;
   zoomTo:     (level: number) => void;       // e.g. 0.5, 1, 2
@@ -33,6 +34,7 @@ interface Props {
   onToolChange?:       (t: Tool) => void;
   onLayersChange?:     () => void;
   onZoomChange?:       (zoom: number) => void;
+  onCanvasChangeKeepAlive?: (data: CanvasData) => void;  // for pagehide
   uploadFn?:           (file: File) => Promise<{ url: string; mimetype: string }>;
 }
 
@@ -40,7 +42,8 @@ const DEFAULT_BG = '#f0f0f0';
 
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
   ({ board, activeTool, role, onObjectSelect, onCanvasChange, onCanvasReady,
-     onBackgroundChange, onToolChange, onLayersChange, onZoomChange, uploadFn }, ref) => {
+     onBackgroundChange, onToolChange, onLayersChange, onZoomChange,
+     onCanvasChangeKeepAlive, uploadFn }, ref) => {
 
     const canvasElRef   = useRef<HTMLCanvasElement>(null);
     const wrapperRef    = useRef<HTMLDivElement>(null);
@@ -147,7 +150,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           changeTimer.current = null;
         }
         const payload = buildPayload();
-        if (payload) onCanvasChange(payload);
+        if (!payload) return;
+        // Prefer the keep-alive path on unload so the request survives the
+        // tab close. Axios uses XHR which the browser aborts on unload, so
+        // a regular onCanvasChange here would drop the user's last edits.
+        if (onCanvasChangeKeepAlive) onCanvasChangeKeepAlive(payload);
+        else onCanvasChange(payload);
       };
       const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
       window.addEventListener('pagehide',      flush);
@@ -156,7 +164,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         window.removeEventListener('pagehide',      flush);
         document.removeEventListener('visibilitychange', onVis);
       };
-    }, [buildPayload, onCanvasChange]);
+    }, [buildPayload, onCanvasChange, onCanvasChangeKeepAlive]);
 
     // ── Frame clip helper ────────────────────────────────────────────────────
     const makeClipRect = (frame: fabric.Object): fabric.Rect =>
@@ -332,6 +340,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           internalClip.current = c;
           scheduleRef.current(); pushHistory();
         });
+      },
+      flushSave: () => {
+        // Cancel pending debounce and save current state immediately.
+        if (changeTimer.current) {
+          clearTimeout(changeTimer.current);
+          changeTimer.current = null;
+        }
+        const payload = buildPayload();
+        if (payload) onCanvasChange(payload);
       },
       // ── Zoom ─────────────────────────────────────────────────────────────
       // All zooms anchor on the canvas centre so the user's view stays put.
