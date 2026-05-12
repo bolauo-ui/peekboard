@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, LogOut, Clock, Users, Trash2, MoreVertical } from 'lucide-react';
+import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy } from 'lucide-react';
 import { boardsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { Board } from '@/types';
@@ -60,6 +60,20 @@ export default function Dashboard() {
     await boardsApi.delete(id);
     setBoards(p => p.filter(b => b.id !== id));
     setActiveMenu(null);
+  };
+
+  // Duplicate clones the canvas (objects + media) into a brand-new board you
+  // own. Works on both your boards and ones shared with you (the copy lands
+  // in "Your boards" since you become the owner of the duplicate).
+  const duplicateBoard = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveMenu(null);
+    try {
+      const { board } = await boardsApi.duplicate(id);
+      setBoards(p => [{ ...board, owner_name: user?.name ?? '', role: 'owner' as const }, ...p]);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Duplicate failed');
+    }
   };
 
   const ownedBoards  = boards.filter(b => b.role === 'owner');
@@ -127,11 +141,13 @@ export default function Dashboard() {
           <>
             {ownedBoards.length > 0 && (
               <BoardGrid title="Your boards" boards={ownedBoards} onOpen={id => navigate(`/board/${id}`)}
-                onDelete={deleteBoard} activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
+                onDelete={deleteBoard} onDuplicate={duplicateBoard}
+                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
             )}
             {sharedBoards.length > 0 && (
               <BoardGrid title="Shared with you" boards={sharedBoards} onOpen={id => navigate(`/board/${id}`)}
-                onDelete={deleteBoard} activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete={false} />
+                onDelete={deleteBoard} onDuplicate={duplicateBoard}
+                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete={false} />
             )}
           </>
         )}
@@ -173,11 +189,13 @@ export default function Dashboard() {
 
 interface BoardGridProps {
   title: string; boards: Board[];
-  onOpen: (id: string) => void; onDelete: (id: string, e: React.MouseEvent) => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDuplicate: (id: string, e: React.MouseEvent) => void;
   activeMenu: string|null; onMenuToggle: (id: string|null) => void; showDelete: boolean;
 }
 
-function BoardGrid({ title, boards, onOpen, onDelete, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
+function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
   return (
     <section className="mb-10">
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
@@ -210,23 +228,27 @@ function BoardGrid({ title, boards, onOpen, onDelete, activeMenu, onMenuToggle, 
                     {board.role !== 'owner' && <span className="flex items-center gap-0.5 ml-1"><Users size={10} />{board.owner_name}</span>}
                   </p>
                 </div>
-                {showDelete && (
-                  <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={e => { e.stopPropagation(); onMenuToggle(activeMenu===board.id ? null : board.id); }}
-                      className="p-1 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreVertical size={13} />
-                    </button>
-                    {activeMenu === board.id && (
-                      <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-32">
+                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={e => { e.stopPropagation(); onMenuToggle(activeMenu===board.id ? null : board.id); }}
+                    className="p-1 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <MoreVertical size={13} />
+                  </button>
+                  {activeMenu === board.id && (
+                    <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-36">
+                      <button onClick={e => onDuplicate(board.id, e)}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
+                        <Copy size={12} /> Duplicate
+                      </button>
+                      {showDelete && (
                         <button onClick={e => onDelete(board.id, e)}
                           className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">
                           <Trash2 size={12} /> Delete board
                         </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

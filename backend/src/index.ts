@@ -14,11 +14,38 @@ const APP_URL = process.env.APP_URL || `http://localhost:${process.env.PORT || 3
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ── Storage paths ─────────────────────────────────────────────────────────────
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
-const DB_PATH = path.join(DATA_DIR, 'peekboard.json');
-fs.mkdirSync(DATA_DIR, { recursive: true });
+// On Railway every deploy replaces the container, which would wipe the local
+// `./data` and `./uploads` directories — that's why existing boards / GIFs
+// kept disappearing after each push. We now prefer a persistent location:
+//   1. Explicit `DATA_DIR` env var (lets the operator point anywhere)
+//   2. Railway's `RAILWAY_VOLUME_MOUNT_PATH` if a Volume is attached
+//   3. Fall back to local `./data` for `npm run dev`
+// The same logic is applied for uploads, so user-uploaded GIFs / videos
+// survive deploys when a Volume is mounted.
+const PERSIST_ROOT =
+  process.env.DATA_DIR
+  || process.env.RAILWAY_VOLUME_MOUNT_PATH
+  || path.join(__dirname, '..');
+
+const DATA_DIR    = path.join(PERSIST_ROOT, 'data');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(PERSIST_ROOT, 'uploads');
+const DB_PATH     = path.join(DATA_DIR, 'peekboard.json');
+fs.mkdirSync(DATA_DIR,    { recursive: true });
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// One-time migration: if the persistent volume is fresh but the legacy
+// in-container `./data/peekboard.json` exists (left over from a previous
+// non-volume deploy), copy it over so we don't appear to "lose" the boards.
+const LEGACY_DB = path.join(__dirname, '..', 'data', 'peekboard.json');
+if (LEGACY_DB !== DB_PATH && fs.existsSync(LEGACY_DB) && !fs.existsSync(DB_PATH)) {
+  try {
+    fs.copyFileSync(LEGACY_DB, DB_PATH);
+    console.log('[peekboard] migrated legacy db.json → persistent volume');
+  } catch (err) {
+    console.warn('[peekboard] legacy db migration failed:', err);
+  }
+}
+console.log(`[peekboard] storage → db=${DB_PATH}  uploads=${UPLOADS_DIR}`);
 
 // ── JSON file database ────────────────────────────────────────────────────────
 interface User {
@@ -272,6 +299,33 @@ app.delete('/api/boards/:id', authenticate, (req: any, res) => {
   writeDb(db);
   res.json({ success: true });
 });
+
+// Duplicate a board (clones canvas_data, gives the copy a new owner-only id).
+// Any role with at least viewer access can duplicate into their own account —
+// matching Figma's "Duplicate to your drafts" behaviour. Comments and member
+// access are intentionally NOT copied; the duplicate is a fresh personal copy.
+app.post('/api/boards/:id/duplicate',
+  authenticate,
+  requireBoardRole(['owner','editor','commenter','viewer']),
+  (req: any, res) => {
+    const db = readDb();
+    const src = db.boards.find((b) => b.id === req.params.id)!;
+    const now = new Date().toISOString();
+    const copy: Board = {
+      id:           uuidv4(),
+      name:         `${src.name} (copy)`,
+      owner_id:     req.user.id,
+      canvas_data:  src.canvas_data,
+      width:        src.width,
+      height:       src.height,
+      created_at:   now,
+      updated_at:   now,
+    };
+    db.boards.push(copy);
+    writeDb(db);
+    res.status(201).json({ board: copy });
+  }
+);
 
 // ── Sharing ───────────────────────────────────────────────────────────────────
 app.get('/api/boards/:id/members', authenticate, requireBoardRole(['owner','editor','commenter','viewer']), (req: any, res) => {

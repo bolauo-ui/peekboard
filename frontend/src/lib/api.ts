@@ -65,6 +65,9 @@ export const boardsApi = {
   },
 
   delete: (id: string) => http.delete<{ success: boolean }>(`/boards/${id}`).then((r) => r.data),
+
+  duplicate: (id: string) =>
+    http.post<{ board: Board }>(`/boards/${id}/duplicate`).then((r) => r.data),
 };
 
 // ── Sharing ───────────────────────────────────────────────────────────────────
