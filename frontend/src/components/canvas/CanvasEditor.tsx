@@ -478,9 +478,21 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
 
         // Restore viewport (zoom + pan) so refresh returns to last view.
+        // For brand-new boards (no saved viewport yet) we start zoomed out
+        // to 10% so the whole working area is visible instead of opening
+        // already-zoomed-in at 100%.
         if (saved.viewport && saved.viewport.length === 6) {
           canvas.setViewportTransform(saved.viewport as any);
           onZoomChange?.(canvas.getZoom());
+          canvas.requestRenderAll();
+        } else {
+          const z  = 0.1;
+          const cx = canvas.getWidth()  / 2;
+          const cy = canvas.getHeight() / 2;
+          // Centre the 10% view on the canvas origin so newly-created
+          // content lands near the middle of the viewport.
+          canvas.setViewportTransform([z, 0, 0, z, cx, cy]);
+          onZoomChange?.(z);
           canvas.requestRenderAll();
         }
       } catch (e) {
