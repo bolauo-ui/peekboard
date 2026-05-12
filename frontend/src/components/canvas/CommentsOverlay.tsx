@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { fabric } from 'fabric';
-import { Send, Smile, CheckCircle, Trash2, X } from 'lucide-react';
+import { ArrowUp, Smile, AtSign, Image as ImageIcon, Check, X, MoreHorizontal, CornerDownRight } from 'lucide-react';
 import type { Comment, User } from '@/types';
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -31,10 +31,12 @@ interface Props {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function timeAgo(d: string) {
-  const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
-  if (m < 1) return 'now'; if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h`;
-  return `${Math.floor(h/24)}d`;
+  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+  if (s < 5)   return 'Just now';
+  if (s < 60)  return `${s}s ago`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
 }
 
 // Highlight @mentions inside the rendered text. Matches "@Name" or "@First Last".
@@ -42,17 +44,20 @@ function renderWithMentions(text: string) {
   const parts = text.split(/(@[A-Za-z][\w'-]*(?:\s[A-Z][\w'-]*)?)/g);
   return parts.map((p, i) =>
     p.startsWith('@')
-      ? <span key={i} className="font-semibold" style={{ color: 'var(--accent)' }}>{p}</span>
+      ? <span key={i} className="font-semibold" style={{ color: '#2680eb' }}>{p}</span>
       : <span key={i}>{p}</span>
   );
 }
 
-// Common emojis grouped for the lightweight picker. Keeping this static avoids
-// pulling in emoji-mart (~800 KB) for the basic feature set the brief asks for.
+const PIN_COLOR_NEW    = '#2680eb';   // blue – pending / fresh pin
+const PIN_COLOR_ACTIVE = '#2680eb';   // blue – currently-open pin
+const PIN_RING_ACTIVE  = '#ffffff';   // white halo when selected
+
+// Common emojis grouped for the lightweight picker.
 const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
-  { label: 'Smileys', emojis: ['😀','😄','😁','😊','😍','😂','🤣','😘','😎','🤩','🥳','🙂','🤔','😐','😴','😅','😆','😉'] },
-  { label: 'Reactions', emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','👌','✋','🤝','👀','💯','🔥','✨','⭐','💥','🎉','❤️'] },
-  { label: 'Symbols', emojis: ['✅','❌','⚠️','❗','❓','💡','📌','📍','🚀','⏰','📝','💬','🗒️','📎','🔗','🎯','🏁','📊'] },
+  { label: 'Smileys',    emojis: ['😀','😄','😁','😊','😍','😂','🤣','😘','😎','🤩','🥳','🙂','🤔','😐','😴','😅','😆','😉'] },
+  { label: 'Reactions',  emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','👌','✋','🤝','👀','💯','🔥','✨','⭐','💥','🎉','❤️'] },
+  { label: 'Symbols',    emojis: ['✅','❌','⚠️','❗','❓','💡','📌','📍','🚀','⏰','📝','💬','🗒️','📎','🔗','🎯','🏁','📊'] },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -64,15 +69,10 @@ export default function CommentsOverlay({
   const overlayRef = useRef<HTMLDivElement>(null);
   const canComment = role === 'owner' || role === 'editor' || role === 'commenter';
 
-  // Force re-render when the canvas pans / zooms so pins move with content.
-  // `after:render` fires every Fabric paint (which can be 10+ Hz when GIFs
-  // animate), so we cheaply gate it on whether the viewport transform itself
-  // actually changed — otherwise nothing about the pin positions has moved
-  // and re-rendering the overlay is pure waste.
+  // Re-render on viewport change only (not on every Fabric paint).
   const [, setTick] = useState(0);
   const bump = useCallback(() => setTick(t => t + 1), []);
   const lastVptRef = useRef<string>('');
-
   useEffect(() => {
     if (!canvas) return;
     const handler = () => {
@@ -81,7 +81,6 @@ export default function CommentsOverlay({
       if (key !== lastVptRef.current) { lastVptRef.current = key; bump(); }
     };
     canvas.on('after:render', handler);
-    // Also listen to resize so pins reflow when the editor pane changes width.
     window.addEventListener('resize', bump);
     return () => {
       canvas.off('after:render', handler);
@@ -89,58 +88,43 @@ export default function CommentsOverlay({
     };
   }, [canvas, bump]);
 
-  // ── Pending pin (click in comment mode → drop a placeholder) ───────────────
+  // ── Pin + popover state ───────────────────────────────────────────────────
   const [pending, setPending] = useState<{ x: number; y: number } | null>(null);
   const [openPinId, setOpenPinId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canvas) return;
-    if (activeTool !== 'comment') {
-      // Switching away from comment tool dismisses any pending pin.
-      setPending(null);
-      return;
-    }
+    if (activeTool !== 'comment') { setPending(null); return; }
     const onDown = (opt: fabric.IEvent) => {
       const ptr = canvas.getPointer((opt as any).e);
       setPending({ x: Math.round(ptr.x), y: Math.round(ptr.y) });
-      setOpenPinId(null);                  // close any open thread
-      onToolChange('select');              // one-shot: drop and return to select
+      setOpenPinId(null);
+      onToolChange('select');
     };
     canvas.on('mouse:down', onDown);
     return () => { canvas.off('mouse:down', onDown); };
   }, [canvas, activeTool, onToolChange]);
 
-  // ── World-to-screen projection ─────────────────────────────────────────────
-  // Pins are positioned relative to the canvas wrapper (which itself fills the
-  // editor area). We compute the pin's pixel offset within that wrapper using
-  // the live viewport transform.
+  // ── World-to-screen projection ────────────────────────────────────────────
   const project = useCallback((wx: number, wy: number): { left: number; top: number } | null => {
     if (!canvas) return null;
     const canvasEl = canvas.getElement?.() as HTMLCanvasElement | undefined;
     const overlay  = overlayRef.current;
     if (!canvasEl || !overlay) return null;
-
     const cRect = canvasEl.getBoundingClientRect();
     const oRect = overlay.getBoundingClientRect();
     const vpt   = canvas.viewportTransform!;
     const zoom  = canvas.getZoom();
-
     return {
       left: (cRect.left - oRect.left) + wx * zoom + vpt[4],
       top:  (cRect.top  - oRect.top)  + wy * zoom + vpt[5],
     };
   }, [canvas]);
 
-  // ── Visible pins, numbered by creation order among unresolved ──────────────
-  const numbered = useMemo(() => {
-    const order = [...comments].sort((a, b) => a.created_at.localeCompare(b.created_at));
-    let n = 0;
-    return order.map(c => ({ ...c, pinNumber: c.resolved ? 0 : ++n }));
-  }, [comments]);
-
+  // ── Visible pins ──────────────────────────────────────────────────────────
   const visiblePins = useMemo(
-    () => numbered.filter(c => showResolved || !c.resolved),
-    [numbered, showResolved]
+    () => comments.filter(c => showResolved || !c.resolved),
+    [comments, showResolved]
   );
 
   const openComment = openPinId ? comments.find(c => c.id === openPinId) ?? null : null;
@@ -162,11 +146,11 @@ export default function CommentsOverlay({
         return (
           <PinDot
             key={c.id}
-            number={c.pinNumber}
-            color={c.avatar_color}
-            resolved={!!c.resolved}
-            preview={c.content}
+            avatarInitial={c.user_name.charAt(0).toUpperCase()}
+            avatarColor={c.avatar_color}
             authorName={c.user_name}
+            previewText={c.content}
+            resolved={!!c.resolved}
             active={isOpen}
             left={pos.left}
             top={pos.top}
@@ -175,17 +159,17 @@ export default function CommentsOverlay({
         );
       })}
 
-      {/* Pending pin (no comment yet — popover will save it). */}
+      {/* Pending (not-yet-saved) pin */}
       {pendingPos && (
         <PinDot
-          number={comments.filter(c => !c.resolved).length + 1}
-          color={currentUser.avatar_color}
-          resolved={false}
+          avatarInitial={currentUser.name.charAt(0).toUpperCase()}
+          avatarColor={currentUser.avatar_color}
           authorName={currentUser.name}
-          active={true}
+          resolved={false}
+          active
           left={pendingPos.left}
           top={pendingPos.top}
-          onClick={() => { /* no-op */ }}
+          onClick={() => { /* no-op; popover handles cancel */ }}
         />
       )}
 
@@ -194,7 +178,6 @@ export default function CommentsOverlay({
         <ThreadPopover
           comment={openComment}
           replies={openThread}
-          pinNumber={numbered.find(c => c.id === openComment.id)?.pinNumber ?? 0}
           anchor={openPinPos}
           overlayRef={overlayRef}
           currentUser={currentUser}
@@ -208,7 +191,7 @@ export default function CommentsOverlay({
         />
       )}
 
-      {/* Popover for the pending (not-yet-saved) pin */}
+      {/* Popover for the pending pin */}
       {pending && pendingPos && (
         <NewCommentPopover
           anchor={pendingPos}
@@ -227,21 +210,27 @@ export default function CommentsOverlay({
   );
 }
 
-// ── Pin dot ──────────────────────────────────────────────────────────────────
+// ── Teardrop pin with avatar inside ─────────────────────────────────────────
 interface PinDotProps {
-  number: number;
-  color: string;
-  resolved: boolean;
-  preview?: string;
+  avatarInitial: string;
+  avatarColor: string;
   authorName: string;
+  previewText?: string;
+  resolved: boolean;
   active: boolean;
   left: number;
   top: number;
   onClick: () => void;
 }
 
-function PinDot({ number, color, resolved, preview, authorName, active, left, top, onClick }: PinDotProps) {
+function PinDot({ avatarInitial, avatarColor, authorName, previewText, resolved, active, left, top, onClick }: PinDotProps) {
   const [hover, setHover] = useState(false);
+
+  // Outer teardrop colour: blue when active/pending, neutral when resolved,
+  // otherwise the same blue as Figma uses for unresolved threads.
+  const teardropBg = resolved ? '#ffffff' : PIN_COLOR_NEW;
+  const teardropBorder = resolved ? '#cfd2d6' : PIN_COLOR_NEW;
+
   return (
     <div
       className="absolute pointer-events-auto"
@@ -251,44 +240,84 @@ function PinDot({ number, color, resolved, preview, authorName, active, left, to
         onClick={(e) => { e.stopPropagation(); onClick(); }}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        className="relative flex items-center justify-center text-[11px] font-bold transition-transform hover:scale-110"
+        className="relative block transition-transform hover:scale-110"
         style={{
-          width:        24,
-          height:       24,
-          borderRadius: '50% 50% 50% 0',
-          transform:    'rotate(-45deg)',
-          background:   resolved ? 'transparent' : (active ? '#fbbf24' : color),
-          color:        resolved ? 'var(--text-muted)' : '#fff',
-          border:       resolved ? '2px solid var(--border)' : (active ? '2px solid #fbbf24' : `2px solid ${color}`),
-          boxShadow:    active ? '0 0 0 4px rgba(251,191,36,0.25)' : '0 2px 6px rgba(0,0,0,0.3)',
+          width:        34,
+          height:       34,
+          padding:      0,
+          background:   'transparent',
+          border:       'none',
+          cursor:       'pointer',
+          filter:       active
+            ? 'drop-shadow(0 0 0 3px ' + PIN_RING_ACTIVE + ') drop-shadow(0 4px 10px rgba(0,0,0,0.35))'
+            : 'drop-shadow(0 3px 6px rgba(0,0,0,0.35))',
         }}
-        aria-label={`Comment ${number} by ${authorName}`}
+        aria-label={`Comment by ${authorName}`}
       >
-        <span style={{ transform: 'rotate(45deg)' }}>{number || '✓'}</span>
+        {/* Teardrop SVG: pointed at bottom-left, rounded top-right. */}
+        <svg viewBox="0 0 40 40" width="34" height="34" style={{ display: 'block' }}>
+          <path
+            d="M20 2
+               C 30 2 38 10 38 20
+               C 38 30 30 38 20 38
+               L 2 38
+               L 2 20
+               C 2 10 10 2 20 2 Z"
+            fill={teardropBg}
+            stroke={active ? PIN_RING_ACTIVE : teardropBorder}
+            strokeWidth={active ? 2.5 : 1}
+          />
+        </svg>
+        {/* Avatar inside */}
+        <span
+          style={{
+            position:      'absolute',
+            left:          '50%',
+            top:           '50%',
+            transform:     'translate(-50%, -50%)',
+            width:         20,
+            height:        20,
+            borderRadius:  '50%',
+            background:    avatarColor,
+            color:         '#fff',
+            fontSize:      10,
+            fontWeight:    700,
+            display:       'flex',
+            alignItems:    'center',
+            justifyContent:'center',
+            // Slight offset to nest in the rounded part of the teardrop.
+            marginTop:     -3,
+            marginLeft:    1,
+          }}
+        >
+          {resolved ? <Check size={12} strokeWidth={3} /> : avatarInitial}
+        </span>
       </button>
 
       {/* Hover preview */}
-      {hover && preview && !active && (
+      {hover && previewText && !active && (
         <div
-          className="absolute text-xs rounded-md px-2 py-1.5 whitespace-nowrap"
+          className="absolute text-xs rounded-md px-2.5 py-1.5"
           style={{
             left:        '50%',
-            top:         -8,
+            top:         -10,
             transform:   'translate(-50%, -100%)',
-            background:  'rgba(20,20,24,0.95)',
-            border:      '1px solid var(--border)',
-            color:       'var(--text-primary)',
-            maxWidth:    260,
+            background:  'rgba(20,20,24,0.96)',
+            border:      '1px solid rgba(255,255,255,0.08)',
+            color:       '#fff',
+            maxWidth:    280,
+            whiteSpace:  'nowrap',
             overflow:    'hidden',
-            textOverflow: 'ellipsis',
+            textOverflow:'ellipsis',
             pointerEvents: 'none',
             zIndex:      30,
+            boxShadow:   '0 6px 22px rgba(0,0,0,0.4)',
           }}
         >
-          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{authorName}</span>
-          <span style={{ color: 'var(--text-muted)' }}> · </span>
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {preview.slice(0, 60)}{preview.length > 60 ? '…' : ''}
+          <span className="font-semibold">{authorName}</span>
+          <span style={{ opacity: 0.6 }}> · </span>
+          <span style={{ opacity: 0.85 }}>
+            {previewText.slice(0, 60)}{previewText.length > 60 ? '…' : ''}
           </span>
         </div>
       )}
@@ -296,24 +325,23 @@ function PinDot({ number, color, resolved, preview, authorName, active, left, to
   );
 }
 
-// ── Reusable popover positioning ─────────────────────────────────────────────
+// ── Popover positioning ─────────────────────────────────────────────────────
 function usePopoverPosition(
   anchor: { left: number; top: number },
   overlayRef: React.RefObject<HTMLElement>,
   size: { w: number; h: number },
 ) {
-  // Clamp to overlay bounds so we never spill off screen on small viewports.
   const overlay = overlayRef.current;
   const ow = overlay?.clientWidth  ?? window.innerWidth;
   const oh = overlay?.clientHeight ?? window.innerHeight;
   const margin = 12;
 
-  // Prefer placement to the right of the pin with a slight upward bias.
-  let left = anchor.left + 16;
-  let top  = anchor.top  - 8;
+  // Default: to the right of the pin, vertically centred on it.
+  let left = anchor.left + 22;
+  let top  = anchor.top  - size.h / 2;
 
-  // If we'd run off the right, flip to the left of the pin.
-  if (left + size.w + margin > ow) left = Math.max(margin, anchor.left - size.w - 16);
+  // Flip to the left if we'd run off the right edge.
+  if (left + size.w + margin > ow) left = Math.max(margin, anchor.left - size.w - 22);
   // Vertical clamp.
   if (top + size.h + margin > oh) top = Math.max(margin, oh - size.h - margin);
   if (top < margin) top = margin;
@@ -321,7 +349,25 @@ function usePopoverPosition(
   return { left, top };
 }
 
-// ── New comment popover ─────────────────────────────────────────────────────
+// ── Light card wrapper (matches the Figma screenshots) ──────────────────────
+function LightCard({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
+  return (
+    <div
+      className={'rounded-2xl ' + className}
+      style={{
+        background:  '#ffffff',
+        color:       '#1f2024',
+        boxShadow:   '0 20px 60px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.08)',
+        border:      '1px solid rgba(0,0,0,0.04)',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── New comment popover (expanding pill) ────────────────────────────────────
 interface NewProps {
   anchor: { left: number; top: number };
   overlayRef: React.RefObject<HTMLDivElement>;
@@ -332,16 +378,18 @@ interface NewProps {
 }
 function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel, onSubmit }: NewProps) {
   const [text, setText] = useState('');
+  const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 320, h: 160 });
+  const [size, setSize] = useState({ w: 380, h: 56 });
 
   useEffect(() => { taRef.current?.focus(); }, []);
   useLayoutEffect(() => {
     if (popRef.current) setSize({ w: popRef.current.offsetWidth, h: popRef.current.offsetHeight });
-  }, [text]);
+  }, [text, focused]);
 
   const pos = usePopoverPosition(anchor, overlayRef, size);
+  const expanded = focused || text.length > 0;
 
   const submit = async () => {
     const t = text.trim();
@@ -349,30 +397,55 @@ function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel,
     await onSubmit(t);
   };
 
+  // Esc dismisses the empty pending pin.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
   return (
     <div
       ref={popRef}
       className="absolute pointer-events-auto"
-      style={{ left: pos.left, top: pos.top, width: 320, zIndex: 40 }}
+      style={{ left: pos.left, top: pos.top, width: 380, zIndex: 40 }}
     >
-      <Popover>
-        <div className="flex items-center gap-2 mb-2">
-          <Avatar name={currentUser.name} color={currentUser.avatar_color} />
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{currentUser.name}</span>
-          <button onClick={onCancel} className="ml-auto" style={{ color: 'var(--text-muted)' }} aria-label="Cancel">
-            <X size={13} />
-          </button>
-        </div>
-        <CommentEditor
-          textareaRef={taRef}
-          value={text}
-          onChange={setText}
-          members={members}
-          placeholder="Add a comment…"
-          onSubmit={submit}
-          onCancel={onCancel}
-        />
-      </Popover>
+      <LightCard className={expanded ? 'p-3' : 'px-3 py-2'}>
+        {expanded ? (
+          <CommentComposer
+            textareaRef={taRef}
+            value={text}
+            onChange={setText}
+            members={members}
+            placeholder="Add a comment…"
+            onSubmit={submit}
+            onCancel={onCancel}
+            onBlur={() => setFocused(false)}
+            onFocus={() => setFocused(true)}
+          />
+        ) : (
+          /* Collapsed pill: textarea looks like a single input row with arrow */
+          <div className="flex items-center gap-2">
+            <textarea
+              ref={taRef}
+              rows={1}
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+              }}
+              placeholder="Add a comment"
+              className="flex-1 text-sm resize-none outline-none bg-transparent"
+              style={{ color: '#1f2024', lineHeight: '20px', maxHeight: 28 }}
+            />
+            <SendButton enabled={text.trim().length > 0} onClick={submit} />
+          </div>
+        )}
+      </LightCard>
     </div>
   );
 }
@@ -381,7 +454,6 @@ function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel,
 interface ThreadProps {
   comment: Comment;
   replies: Comment[];
-  pinNumber: number;
   anchor: { left: number; top: number };
   overlayRef: React.RefObject<HTMLDivElement>;
   currentUser: User;
@@ -394,21 +466,23 @@ interface ThreadProps {
   onDelete:  (id: string) => Promise<void> | void;
 }
 function ThreadPopover({
-  comment, replies, pinNumber, anchor, overlayRef,
+  comment, replies, anchor, overlayRef,
   currentUser, role, canComment, members, onClose, onAddReply, onResolve, onDelete,
 }: ThreadProps) {
-  const [text, setText] = useState('');
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [reply, setReply]       = useState('');
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [menuFor,  setMenuFor]  = useState<string | null>(null);
+  const [headerMenu, setHeaderMenu] = useState(false);
+  const replyTaRef = useRef<HTMLTextAreaElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 340, h: 240 });
+  const [size, setSize] = useState({ w: 380, h: 240 });
 
   useLayoutEffect(() => {
     if (popRef.current) setSize({ w: popRef.current.offsetWidth, h: popRef.current.offsetHeight });
-  }, [text, replies.length]);
+  }, [reply, replyOpen, replies.length]);
 
   const pos = usePopoverPosition(anchor, overlayRef, size);
 
-  // Close on Escape anywhere within the popover.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -416,138 +490,232 @@ function ThreadPopover({
   }, [onClose]);
 
   const send = async () => {
-    const t = text.trim();
+    const t = reply.trim();
     if (!t) return;
     await onAddReply(comment.id, t);
-    setText('');
-    setTimeout(() => taRef.current?.focus(), 0);
+    setReply('');
+    setReplyOpen(false);
+    setTimeout(() => replyTaRef.current?.focus(), 0);
   };
 
-  const isMine = comment.user_id === currentUser.id;
+  const canResolve = !comment.resolved && (comment.user_id === currentUser.id || role === 'owner');
+  const canDelete  = comment.user_id === currentUser.id || role === 'owner';
+
   return (
     <div
       ref={popRef}
       className="absolute pointer-events-auto"
-      style={{ left: pos.left, top: pos.top, width: 340, zIndex: 40 }}
+      style={{ left: pos.left, top: pos.top, width: 380, zIndex: 40 }}
     >
-      <Popover>
-        {/* Header */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-            style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>#{pinNumber || '✓'}</span>
-          <Avatar name={comment.user_name} color={comment.avatar_color} />
-          <div className="min-w-0">
-            <div className="text-xs font-semibold leading-tight truncate" style={{ color: 'var(--text-primary)' }}>{comment.user_name}</div>
-            <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{timeAgo(comment.created_at)}</div>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            {!comment.resolved && (isMine || role === 'owner') && (
-              <>
-                <button onClick={() => onResolve(comment.id)}
-                  title="Resolve"
-                  className="p-1 rounded hover:bg-white/5 transition-colors"
-                  style={{ color: 'var(--text-muted)' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#34d399')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
-                  <CheckCircle size={13} />
-                </button>
-                <button onClick={() => { onDelete(comment.id); onClose(); }}
-                  title="Delete"
-                  className="p-1 rounded hover:bg-white/5 transition-colors"
-                  style={{ color: 'var(--text-muted)' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
-                  <Trash2 size={13} />
-                </button>
-              </>
+      <LightCard>
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: '#ececef' }}>
+          <span className="text-[13px] font-semibold" style={{ color: '#1f2024' }}>Comment</span>
+          <div className="flex items-center gap-0.5">
+            {/* Header overflow menu placeholder — kept for visual parity */}
+            <IconBtn title="More" onClick={() => setHeaderMenu(v => !v)}>
+              <MoreHorizontal size={15} />
+            </IconBtn>
+            {canResolve && (
+              <IconBtn title={comment.resolved ? 'Resolved' : 'Mark as resolved'} onClick={() => onResolve(comment.id)}>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  width: 18, height: 18, borderRadius: '50%',
+                  border: '1.5px solid #1f2024',
+                }}>
+                  <Check size={10} strokeWidth={3} />
+                </span>
+              </IconBtn>
             )}
-            <button onClick={onClose} className="p-1 rounded hover:bg-white/5" style={{ color: 'var(--text-muted)' }} aria-label="Close">
-              <X size={13} />
-            </button>
+            <IconBtn title="Close" onClick={onClose}>
+              <X size={15} />
+            </IconBtn>
           </div>
         </div>
 
-        {/* Resolved badge */}
+        {/* Resolved chip */}
         {!!comment.resolved && (
-          <div className="text-[10px] font-medium flex items-center gap-1 mb-2 px-2 py-1 rounded"
-            style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399' }}>
-            <CheckCircle size={10} /> Resolved
+          <div className="px-4 pt-3">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
+              style={{ background: 'rgba(52,211,153,0.12)', color: '#0f9d58' }}>
+              <Check size={11} strokeWidth={3} /> Resolved
+            </span>
           </div>
         )}
 
-        {/* Body */}
-        <p className="text-xs leading-relaxed break-words mb-2" style={{ color: 'var(--text-secondary)' }}>
-          {renderWithMentions(comment.content)}
-        </p>
-
-        {/* Replies */}
-        {replies.length > 0 && (
-          <ul className="space-y-2 max-h-56 overflow-y-auto pr-1 mb-2 pl-2"
-            style={{ borderLeft: '2px solid var(--border)' }}>
-            {replies.map(r => (
-              <li key={r.id} className="flex gap-1.5">
-                <Avatar name={r.user_name} color={r.avatar_color} size="xs" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{r.user_name}</span>
-                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{timeAgo(r.created_at)}</span>
-                  </div>
-                  <p className="text-xs leading-relaxed break-words" style={{ color: 'var(--text-secondary)' }}>
-                    {renderWithMentions(r.content)}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Reply input */}
-        {!comment.resolved && canComment && (
-          <CommentEditor
-            textareaRef={taRef}
-            value={text}
-            onChange={setText}
-            members={members}
-            placeholder="Reply…"
-            onSubmit={send}
-            onCancel={onClose}
-            compact
+        {/* Root message */}
+        <div className="px-4 py-3">
+          <MessageRow
+            authorName={comment.user_name}
+            avatarColor={comment.avatar_color}
+            createdAt={comment.created_at}
+            content={comment.content}
+            showMenu={canDelete}
+            menuOpen={menuFor === comment.id}
+            onToggleMenu={() => setMenuFor(menuFor === comment.id ? null : comment.id)}
+            onDelete={() => { onDelete(comment.id); onClose(); }}
           />
+
+          {/* Replies */}
+          {replies.length > 0 && (
+            <div className="mt-3 space-y-3">
+              {replies.map(r => (
+                <MessageRow
+                  key={r.id}
+                  authorName={r.user_name}
+                  avatarColor={r.avatar_color}
+                  createdAt={r.created_at}
+                  content={r.content}
+                  showMenu={r.user_id === currentUser.id || role === 'owner'}
+                  menuOpen={menuFor === r.id}
+                  onToggleMenu={() => setMenuFor(menuFor === r.id ? null : r.id)}
+                  onDelete={() => onDelete(r.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Reply input — compact pill that expands on focus */}
+        {!comment.resolved && canComment && (
+          <div className="px-4 pb-3">
+            {replyOpen ? (
+              <CommentComposer
+                textareaRef={replyTaRef}
+                value={reply}
+                onChange={setReply}
+                members={members}
+                placeholder="Reply"
+                onSubmit={send}
+                onCancel={() => { setReplyOpen(false); setReply(''); }}
+                compact
+              />
+            ) : (
+              <div className="flex items-center gap-2 rounded-full px-3 py-1.5"
+                style={{ background: '#f3f4f6' }}>
+                <Avatar name={currentUser.name} color={currentUser.avatar_color} size="xs" />
+                <button
+                  onClick={() => { setReplyOpen(true); setTimeout(() => replyTaRef.current?.focus(), 30); }}
+                  className="flex-1 text-left text-sm bg-transparent outline-none"
+                  style={{ color: '#9ca3af' }}
+                >
+                  Reply
+                </button>
+                <SendButton enabled={false} onClick={() => { /* unused; expands first */ }} small />
+              </div>
+            )}
+          </div>
         )}
-      </Popover>
+      </LightCard>
     </div>
   );
 }
 
-// ── Floating panel (white card with arrow) ──────────────────────────────────
-function Popover({ children }: { children: React.ReactNode }) {
+// ── Single message row (author + name + time + … menu + body) ───────────────
+interface MessageRowProps {
+  authorName: string;
+  avatarColor: string;
+  createdAt: string;
+  content: string;
+  showMenu: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onDelete: () => void;
+}
+function MessageRow({ authorName, avatarColor, createdAt, content, showMenu, menuOpen, onToggleMenu, onDelete }: MessageRowProps) {
+  return (
+    <div className="flex gap-2.5">
+      <Avatar name={authorName} color={avatarColor} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold" style={{ color: '#1f2024' }}>{authorName}</span>
+          <span className="text-[12px]" style={{ color: '#9ca3af' }}>{timeAgo(createdAt)}</span>
+          {showMenu && (
+            <div className="ml-auto relative">
+              <IconBtn title="More" onClick={onToggleMenu}>
+                <MoreHorizontal size={14} />
+              </IconBtn>
+              {menuOpen && (
+                <div className="absolute right-0 top-7 rounded-md py-1 z-50"
+                  style={{ background: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.18)', border: '1px solid #ececef', minWidth: 140 }}>
+                  <button onClick={onDelete}
+                    className="w-full text-left text-[12.5px] px-3 py-1.5 hover:bg-gray-50"
+                    style={{ color: '#dc2626' }}>
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <p className="text-[13.5px] leading-snug mt-1 break-words" style={{ color: '#1f2024' }}>
+          {renderWithMentions(content)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Avatar (light theme) ────────────────────────────────────────────────────
+function Avatar({ name, color, size = 'sm' }: { name: string; color: string; size?: 'sm'|'xs' }) {
+  const dim = size === 'xs' ? 22 : 28;
   return (
     <div
-      className="rounded-xl p-3 shadow-2xl"
+      className="rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
       style={{
-        background: 'var(--bg-panel, #1a1a1d)',
-        border:     '1px solid var(--border)',
-        boxShadow:  '0 12px 40px rgba(0,0,0,0.55)',
+        width: dim, height: dim,
+        backgroundColor: color,
+        fontSize: size === 'xs' ? 10 : 12,
       }}
     >
-      {children}
-    </div>
-  );
-}
-
-// ── Avatar ──────────────────────────────────────────────────────────────────
-function Avatar({ name, color, size = 'sm' }: { name: string; color: string; size?: 'sm'|'xs' }) {
-  const sz = size === 'xs' ? 'w-5 h-5 text-[10px]' : 'w-6 h-6 text-xs';
-  return (
-    <div className={`${sz} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}
-      style={{ backgroundColor: color }}>
       {name.charAt(0).toUpperCase()}
     </div>
   );
 }
 
-// ── Comment editor: textarea + @mentions + emoji ────────────────────────────
-interface EditorProps {
+function IconBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="rounded-full p-1.5 transition-colors"
+      style={{ color: '#3a3b3f' }}
+      onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Send button (blue circle with up-arrow) ─────────────────────────────────
+function SendButton({ enabled, onClick, small }: { enabled: boolean; onClick: () => void; small?: boolean }) {
+  const dim = small ? 26 : 30;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!enabled}
+      aria-label="Send"
+      className="rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
+      style={{
+        width: dim, height: dim,
+        background: enabled ? '#2680eb' : '#d6d8dc',
+        color: '#fff',
+        flexShrink: 0,
+      }}
+      onMouseEnter={e => { if (enabled) e.currentTarget.style.background = '#1f6bd8'; }}
+      onMouseLeave={e => { if (enabled) e.currentTarget.style.background = '#2680eb'; }}
+    >
+      <ArrowUp size={small ? 13 : 15} strokeWidth={2.5} />
+    </button>
+  );
+}
+
+// ── Comment composer (textarea + emoji/@/image toolbar + send) ──────────────
+interface ComposerProps {
   textareaRef: React.RefObject<HTMLTextAreaElement>;
   value: string;
   onChange: (v: string) => void;
@@ -555,19 +723,21 @@ interface EditorProps {
   placeholder: string;
   onSubmit: () => void;
   onCancel: () => void;
+  onFocus?: () => void;
+  onBlur?:  () => void;
   compact?: boolean;
 }
-function CommentEditor({ textareaRef, value, onChange, members, placeholder, onSubmit, onCancel, compact }: EditorProps) {
-  const [emojiOpen, setEmojiOpen] = useState(false);
-  const [mention, setMention]     = useState<{ query: string; index: number } | null>(null);
+function CommentComposer({
+  textareaRef, value, onChange, members, placeholder, onSubmit, onCancel, onFocus, onBlur, compact,
+}: ComposerProps) {
+  const [emojiOpen, setEmojiOpen]   = useState(false);
+  const [mention,   setMention]     = useState<{ query: string; index: number } | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
 
-  // Detect "@xxx" being typed and surface a mention dropdown.
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     const caret = ta.selectionStart ?? value.length;
-    // Look back for the last @ in the current "word" (no whitespace between).
     const before = value.slice(0, caret);
     const m = before.match(/(?:^|\s)@([\w-]{0,40})$/);
     if (m) setMention({ query: m[1].toLowerCase(), index: caret - m[1].length - 1 });
@@ -578,9 +748,7 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
   const candidates = useMemo(() => {
     if (!mention) return [];
     const q = mention.query;
-    return members
-      .filter(m => m.name.toLowerCase().includes(q))
-      .slice(0, 6);
+    return members.filter(m => m.name.toLowerCase().includes(q)).slice(0, 6);
   }, [members, mention]);
 
   const insertMention = (name: string) => {
@@ -590,9 +758,7 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
     const after  = value.slice((ta?.selectionStart ?? value.length));
     const cleanName = name.replace(/\s+/g, ' ');
     const insert = `@${cleanName} `;
-    const next   = before + insert + after;
-    onChange(next);
-    // Move caret to after the inserted mention.
+    onChange(before + insert + after);
     requestAnimationFrame(() => {
       ta?.focus();
       const caret = (before + insert).length;
@@ -604,8 +770,7 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
   const insertEmoji = (emo: string) => {
     const ta = textareaRef.current;
     const caret = ta?.selectionStart ?? value.length;
-    const next = value.slice(0, caret) + emo + value.slice(caret);
-    onChange(next);
+    onChange(value.slice(0, caret) + emo + value.slice(caret));
     requestAnimationFrame(() => {
       ta?.focus();
       const c = caret + emo.length;
@@ -620,13 +785,21 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(candidates[selectedIdx].name); return; }
       if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onCancel();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+    else if (e.key === 'Escape')          { e.preventDefault(); onCancel(); }
+  };
+
+  const triggerMention = () => {
+    const ta = textareaRef.current;
+    const caret = ta?.selectionStart ?? value.length;
+    const needsSpace = caret > 0 && !/\s$/.test(value.slice(0, caret));
+    const insert = (needsSpace ? ' ' : '') + '@';
+    onChange(value.slice(0, caret) + insert + value.slice(caret));
+    requestAnimationFrame(() => {
+      ta?.focus();
+      const c = caret + insert.length;
+      ta?.setSelectionRange(c, c);
+    });
   };
 
   return (
@@ -636,67 +809,45 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
         value={value}
         onChange={e => onChange(e.target.value)}
         onKeyDown={onKey}
+        onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={placeholder}
-        rows={compact ? 2 : 3}
-        className="w-full text-xs resize-none rounded-md px-2.5 py-2 outline-none"
-        style={{
-          background:  'var(--bg-input)',
-          border:      '1px solid var(--border)',
-          color:       'var(--text-primary)',
-          minHeight:   compact ? 56 : 72,
-        }}
+        rows={compact ? 2 : 2}
+        className="w-full text-sm resize-none outline-none bg-transparent"
+        style={{ color: '#1f2024', minHeight: compact ? 48 : 56 }}
       />
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 mt-2">
-        <button
-          type="button"
-          onClick={() => setEmojiOpen(v => !v)}
-          title="Emoji"
-          className="p-1.5 rounded transition-colors"
-          style={{ color: 'var(--text-muted)' }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-        >
-          <Smile size={14} />
-        </button>
-        <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-          @ to mention · Enter to send
-        </span>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={!value.trim()}
-          className="ml-auto flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-semibold text-white disabled:opacity-40 transition-colors"
-          style={{ background: 'var(--accent)' }}
-          onMouseEnter={e => { if (value.trim()) e.currentTarget.style.background = 'var(--accent-hover)'; }}
-          onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
-        >
-          <Send size={11} /> Send
-        </button>
+      {/* Divider + toolbar */}
+      <div className="flex items-center mt-1 pt-2" style={{ borderTop: '1px solid #ececef' }}>
+        <div className="flex items-center gap-1">
+          <IconBtn title="Emoji" onClick={() => setEmojiOpen(v => !v)}>
+            <Smile size={16} />
+          </IconBtn>
+          <IconBtn title="Mention" onClick={triggerMention}>
+            <AtSign size={16} />
+          </IconBtn>
+          <IconBtn title="Attach (coming soon)" onClick={() => { /* placeholder for parity */ }}>
+            <ImageIcon size={16} />
+          </IconBtn>
+        </div>
+        <div className="ml-auto">
+          <SendButton enabled={value.trim().length > 0} onClick={onSubmit} />
+        </div>
       </div>
 
       {/* Mention dropdown */}
       {mention && candidates.length > 0 && (
         <div
           className="absolute left-0 right-0 top-full mt-1 rounded-md overflow-hidden"
-          style={{
-            background: 'var(--bg-panel)',
-            border:     '1px solid var(--border)',
-            boxShadow:  '0 6px 24px rgba(0,0,0,0.4)',
-            zIndex:     60,
-          }}
+          style={{ background: '#fff', border: '1px solid #ececef', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 60 }}
         >
           {candidates.map((m, i) => (
             <button
               key={m.id}
               onMouseDown={(e) => { e.preventDefault(); insertMention(m.name); }}
               onMouseEnter={() => setSelectedIdx(i)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs"
-              style={{
-                background: i === selectedIdx ? 'var(--bg-hover)' : 'transparent',
-                color:      'var(--text-primary)',
-              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px]"
+              style={{ background: i === selectedIdx ? '#f3f4f6' : 'transparent', color: '#1f2024' }}
             >
               <Avatar name={m.name} color={m.avatar_color} size="xs" />
               <span className="truncate">{m.name}</span>
@@ -709,25 +860,16 @@ function CommentEditor({ textareaRef, value, onChange, members, placeholder, onS
       {emojiOpen && (
         <div
           className="absolute left-0 top-full mt-1 rounded-md p-2"
-          style={{
-            background: 'var(--bg-panel)',
-            border:     '1px solid var(--border)',
-            boxShadow:  '0 6px 24px rgba(0,0,0,0.4)',
-            width:      260,
-            zIndex:     60,
-          }}
+          style={{ background: '#fff', border: '1px solid #ececef', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', width: 280, zIndex: 60 }}
         >
           {EMOJI_GROUPS.map(g => (
             <div key={g.label} className="mb-1.5 last:mb-0">
-              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>{g.label}</div>
+              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: '#9ca3af' }}>{g.label}</div>
               <div className="grid grid-cols-9 gap-0.5">
                 {g.emojis.map(e => (
-                  <button
-                    key={e}
-                    type="button"
+                  <button key={e} type="button"
                     onMouseDown={(ev) => { ev.preventDefault(); insertEmoji(e); }}
-                    className="text-base p-1 rounded hover:bg-white/5"
-                  >
+                    className="text-base p-1 rounded hover:bg-gray-100">
                     {e}
                   </button>
                 ))}
