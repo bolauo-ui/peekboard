@@ -726,43 +726,34 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const addGif = (
       canvas: fabric.Canvas, url: string,
       saved?: Partial<MediaItem>, pos?: { x: number; y: number },
-      sourceFile?: File           // local File → instant display, no server round-trip
+      sourceFile?: File
     ) => {
       const id = saved?.id ?? uuidv4();
 
-      // Blob URL from local file = instant; server URL = loaded remotely
+      // Build display URL — blob for local file, raw URL otherwise
       const displayUrl = sourceFile
         ? (() => { const b = URL.createObjectURL(sourceFile); blobUrls.current.push(b); return b; })()
         : url;
 
-      // Use a native <img> element — the browser animates GIF frames automatically.
-      // No gifler / no main-thread decoding / no freeze.
+      if (!displayUrl) return; // nothing to load
+
       const imgEl = new window.Image();
-      // Only set crossOrigin for external http/https URLs.
-      // Blob URLs are same-origin — setting crossOrigin on them causes onerror
-      // in strict browsers (Safari) because blob responses carry no CORS headers.
-      if (!sourceFile && displayUrl && !displayUrl.startsWith('blob:')) {
-        imgEl.crossOrigin = 'anonymous';
-      }
+      // ── CRITICAL: do NOT set crossOrigin here. ───────────────────────────────
+      // crossOrigin='anonymous' causes a silent onerror on any server that doesn't
+      // return CORS headers (most CDNs, imgur, giphy direct links, etc.).
+      // We never call getImageData / toDataURL on the GIF off-screen canvas, so
+      // canvas taint is not a problem for display.
 
       imgEl.onload = () => {
         const w = imgEl.naturalWidth  || 200;
         const h = imgEl.naturalHeight || 200;
 
-        // ── Off-screen canvas snapshot approach ──────────────────────────────
-        // Drawing <img> directly to the Fabric canvas causes GIF frame-disposal
-        // artifacts: transparent frames bleed through instead of clearing cleanly.
-        // Solution: snapshot each frame via clearRect + drawImage on an off-screen
-        // canvas, then use that canvas as the fabric.Image source.  The clear
-        // ensures every frame is composited from scratch with no bleed-through.
+        // Off-screen canvas: each rAF tick we fill white then drawImage(imgEl).
+        // White fill prevents transparent-pixel bleed-through between frames.
         const offCanvas = document.createElement('canvas');
         offCanvas.width  = w;
         offCanvas.height = h;
         const offCtx = offCanvas.getContext('2d')!;
-
-        // Draw the initial frame on white — GIFs with transparent backgrounds
-        // would otherwise show the (potentially dark) canvas colour through
-        // them.  White matches how every browser renders GIFs on a web page.
         offCtx.fillStyle = '#ffffff';
         offCtx.fillRect(0, 0, w, h);
         offCtx.drawImage(imgEl, 0, 0, w, h);
@@ -791,16 +782,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           scheduleRef.current();
         }
 
-        // On every animation frame: snapshot the current GIF frame into the
-        // off-screen canvas, mark the Fabric image dirty, and re-render.
-        // Running every rAF tick (≈60fps) ensures we never skip a fast frame.
         let cancelled = false;
         gifStoppers.current.set(id, () => {
           cancelled = true;
-          // Remove the hidden <img> from the DOM to stop animation & allow GC
           if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
         });
 
+        // rAF loop: copy current animated frame from imgEl → offCanvas → Fabric
         const tick = () => {
           if (cancelled) return;
           offCtx.fillStyle = '#ffffff';
@@ -813,26 +801,25 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         requestAnimationFrame(tick);
       };
 
-      imgEl.onerror = (e) => {
-        console.error('GIF failed to load:', displayUrl, e);
+      imgEl.onerror = () => {
+        console.error('GIF failed to load:', displayUrl);
         if (imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
-        alert('Failed to load GIF. Please try a different file.');
       };
 
-      // Attach the <img> to the DOM BEFORE setting src so the browser registers it
-      // in the document before the GIF starts decoding.
+      // ── CRITICAL ORDER ────────────────────────────────────────────────────────
+      // 1. Set src FIRST — browser starts fetching the GIF immediately.
+      // 2. THEN append to DOM — registers the element with the browser's GIF
+      //    animation engine so frames advance.
       //
-      // WHY: browsers only run the GIF animation engine for DOM-attached <img>
-      // elements. An off-DOM image stays frozen on frame 1.
+      // WRONG order (what caused the "Failed to load GIF" alert):
+      //   appendChild(imgEl)  → browser fires onerror for missing src
+      //   imgEl.src = url     → too late; element already removed by onerror
       //
-      // CSS: position it far off-screen at its natural dimensions.
-      // DO NOT use opacity:0 or width/height:1px — those are browser hints to
-      // skip animation for invisible / tiny elements (verified broken in Chrome
-      // and Safari). Just move it out of the visible viewport instead.
+      // RIGHT order (below): src is already set when the element enters the DOM,
+      // so no empty-src error fires and animation starts as soon as onload fires.
       imgEl.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none;';
-      document.body.appendChild(imgEl);
-
-      imgEl.src = displayUrl;
+      imgEl.src = displayUrl;                // ← src FIRST
+      document.body.appendChild(imgEl);      // ← DOM second
     };
 
     const addVideo = (
