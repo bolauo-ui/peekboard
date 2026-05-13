@@ -23,6 +23,12 @@ interface Props {
   members:  BoardMemberLite[];
   showResolved: boolean;
 
+  // Controlled: drives which pin's thread popover is open. Lifted to the
+  // Board page so the sidebar can also open a thread when its card is
+  // clicked.
+  openPinId: string | null;
+  onOpenPin: (id: string | null) => void;
+
   onAddComment: (x: number, y: number, content: string) => Promise<Comment | null>;
   onAddReply:   (parentId: string, content: string) => Promise<Comment | null>;
   onResolve:    (id: string) => Promise<void> | void;
@@ -64,6 +70,7 @@ const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
 export default function CommentsOverlay({
   currentUser, role, canvas, activeTool, onToolChange,
   comments, replies, members, showResolved,
+  openPinId, onOpenPin,
   onAddComment, onAddReply, onResolve, onDelete,
 }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -89,8 +96,34 @@ export default function CommentsOverlay({
   }, [canvas, bump]);
 
   // ── Pin + popover state ───────────────────────────────────────────────────
+  // openPinId is controlled from the parent so the sidebar can also drive it.
   const [pending, setPending] = useState<{ x: number; y: number } | null>(null);
-  const [openPinId, setOpenPinId] = useState<string | null>(null);
+  const setOpenPinId = onOpenPin;
+
+  // When the sidebar opens a pin that's off-screen, gently pan the viewport
+  // so the pin is centred. Only triggers when the pin is actually outside
+  // the visible canvas area — clicks on visible pins don't snap the view.
+  useEffect(() => {
+    if (!canvas || !openPinId) return;
+    const c = comments.find(cc => cc.id === openPinId);
+    if (!c) return;
+    const canvasEl = canvas.getElement?.() as HTMLCanvasElement | undefined;
+    if (!canvasEl) return;
+    const w = canvas.getWidth();
+    const h = canvas.getHeight();
+    const vpt = canvas.viewportTransform!;
+    const zoom = canvas.getZoom();
+    const sx = c.x * zoom + vpt[4];
+    const sy = c.y * zoom + vpt[5];
+    const margin = 40;
+    const outside = sx < margin || sy < margin || sx > w - margin || sy > h - margin;
+    if (!outside) return;
+    // Centre the pin in the viewport without changing zoom.
+    const tx = w / 2 - c.x * zoom;
+    const ty = h / 2 - c.y * zoom;
+    canvas.setViewportTransform([zoom, 0, 0, zoom, tx, ty]);
+    canvas.requestRenderAll();
+  }, [openPinId, comments, canvas]);
 
   useEffect(() => {
     if (!canvas || activeTool !== 'comment') return;
@@ -159,7 +192,7 @@ export default function CommentsOverlay({
             active={isOpen}
             left={pos.left}
             top={pos.top}
-            onClick={() => setOpenPinId(prev => prev === c.id ? null : c.id)}
+            onClick={() => setOpenPinId(openPinId === c.id ? null : c.id)}
           />
         );
       })}

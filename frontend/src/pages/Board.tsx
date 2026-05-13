@@ -41,6 +41,7 @@ export default function Board() {
   const [replies,         setReplies]         = useState<Comment[]>([]);
   const [members,         setMembers]         = useState<BoardMemberLite[]>([]);
   const [showResolved,    setShowResolved]    = useState(false);
+  const [openPinId,       setOpenPinId]       = useState<string | null>(null);
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -444,6 +445,8 @@ export default function Board() {
               replies={replies}
               members={members}
               showResolved={showResolved}
+              openPinId={openPinId}
+              onOpenPin={setOpenPinId}
               onAddComment={addComment}
               onAddReply={addReply}
               onResolve={resolveComment}
@@ -466,6 +469,8 @@ export default function Board() {
           <CommentsPanel
             currentUser={user}
             role={board.role}
+            canvas={canvas}
+            zoom={zoom}
             activeTool={activeTool}
             onToolChange={setActiveTool}
             comments={comments}
@@ -475,6 +480,8 @@ export default function Board() {
             onResolve={resolveComment}
             onDelete={deleteComment}
             onAddReply={addReply}
+            onOpenPin={setOpenPinId}
+            openPinId={openPinId}
           />
         )}
       </div>
