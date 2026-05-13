@@ -171,13 +171,13 @@ export default function Dashboard() {
     const url = `${window.location.origin}/board/${id}`;
     try { await navigator.clipboard.writeText(url); }
     catch { /* ignore — older browsers, http://, etc. */ }
-    setActiveMenu(null); setCtxPos(null);
+    setCtxPos(null);
   };
   const showHistoryFor  = (id: string) => navigate(`/board/${id}?history=1`);
   const startRename     = (board: Board) => {
     setRenaming(board.id);
     setRenameValue(board.name);
-    setActiveMenu(null); setCtxPos(null);
+    setCtxPos(null);
   };
   const commitRename = async (board: Board) => {
     const next = renameValue.trim();
