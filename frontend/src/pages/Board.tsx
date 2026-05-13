@@ -15,6 +15,8 @@ import CommentsOverlay, { type BoardMemberLite } from '@/components/canvas/Comme
 import ZoomControl from '@/components/canvas/ZoomControl';
 import ContextMenu from '@/components/canvas/ContextMenu';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
+import VersionHistoryDrawer from '@/components/VersionHistoryDrawer';
+import { History } from 'lucide-react';
 import { setFaviconDot } from '@/lib/favicon';
 
 export default function Board() {
@@ -34,6 +36,8 @@ export default function Board() {
   const [showShare,    setShowShare]    = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showProps,    setShowProps]    = useState(true);
+  const [showHistory,  setShowHistory]  = useState(false);
+  const [reloadKey,    setReloadKey]    = useState(0);
   const [showLayers,   setShowLayers]   = useState(true);
   const [layerVersion, setLayerVersion] = useState(0);
   const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
@@ -398,9 +402,15 @@ export default function Board() {
         onBack={() => navigate('/dashboard')}
       />
 
+      {/* Mobile heads-up: limited editing on small screens. */}
+      <div className="md:hidden text-[11px] px-3 py-1.5 flex-shrink-0 text-center"
+        style={{ background: 'rgba(251,191,36,0.1)', color: '#92400e', borderBottom: '1px solid rgba(251,191,36,0.25)' }}>
+        Mobile mode: best viewed on desktop for full editing. Touch + pinch to pan/zoom.
+      </div>
+
       {/* Sub-bar */}
       <div
-        className="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+        className="flex items-center justify-between px-3 py-1.5 flex-shrink-0 flex-wrap gap-1"
         style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)' }}
       >
         <span className="text-xs font-medium" style={{
@@ -437,6 +447,20 @@ export default function Board() {
             <MessageSquare size={12} />
             Comments
           </button>
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            title="Version history"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
+            style={{
+              background: showHistory ? 'rgba(123,104,238,0.15)' : 'transparent',
+              color:      showHistory ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            onMouseEnter={e => { if (!showHistory) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!showHistory) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <History size={12} />
+            History
+          </button>
 
           {board.role === 'owner' && (
             <button
@@ -466,7 +490,7 @@ export default function Board() {
 
       {/* Editor area */}
       <div className="flex flex-1 overflow-hidden">
-        {showLayers && (
+        {showLayers && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches && (
           <LayerPanel
             canvas={canvas}
             selectedObject={selectedObj}
@@ -477,6 +501,7 @@ export default function Board() {
         )}
         <div className="flex-1 overflow-hidden relative">
           <CanvasEditor
+            key={reloadKey}
             ref={editorRef}
             board={board}
             activeTool={activeTool}
@@ -537,7 +562,7 @@ export default function Board() {
           )}
         </div>
 
-        {showProps && (
+        {showProps && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches && (
           <PropertiesPanel
             selectedObject={selectedObj}
             canvas={canvas}
@@ -564,6 +589,23 @@ export default function Board() {
             onAddReply={addReply}
             onOpenPin={setOpenPinId}
             openPinId={openPinId}
+          />
+        )}
+
+        {showHistory && board && (
+          <VersionHistoryDrawer
+            boardId={board.id}
+            canEdit={board.role === 'owner' || board.role === 'editor'}
+            onClose={() => setShowHistory(false)}
+            onRestored={async () => {
+              // Re-fetch the board so the canvas paints the restored state.
+              try {
+                const { board: refreshed } = await boardsApi.get(board.id);
+                setBoard(refreshed);
+                setReloadKey(k => k + 1);
+                setShowHistory(false);
+              } catch { /* */ }
+            }}
           />
         )}
       </div>

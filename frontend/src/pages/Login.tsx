@@ -10,17 +10,39 @@ export default function Login() {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [magicSent, setMagicSent] = useState(false);
+  // 2FA step state — populated when login returns requires_2fa.
+  const [preToken, setPreToken] = useState<string | null>(null);
+  const [twoCode,  setTwoCode]  = useState('');
   const { setAuth } = useAuthStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault(); setError(''); setLoading(true);
     try {
-      const { token, user } = await authApi.login({ email, password });
+      const r: any = await authApi.login({ email, password });
+      if (r.requires_2fa) {
+        // 2FA step-up: backend handed us a short-lived pre-auth token; flip
+        // the form to the code-entry view.
+        setPreToken(r.token);
+      } else {
+        setAuth(r.user, r.token);
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Login failed. Please try again.');
+    } finally { setLoading(false); }
+  };
+
+  const verify2fa = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!preToken || !twoCode.trim()) return;
+    setError(''); setLoading(true);
+    try {
+      const { token, user } = await authApi.twoFaLogin(preToken, twoCode.trim());
       setAuth(user, token);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Login failed. Please try again.');
+      setError(err.response?.data?.error || 'Code is incorrect.');
     } finally { setLoading(false); }
   };
 
@@ -68,6 +90,38 @@ export default function Login() {
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Sign in to your workspace</p>
         </div>
 
+        {preToken ? (
+          <form onSubmit={verify2fa}
+            className="rounded-xl p-6 space-y-4"
+            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            {error && (
+              <div className="text-xs px-3 py-2 rounded-lg"
+                style={{ background: 'rgba(240,82,82,0.1)', border: '1px solid rgba(240,82,82,0.2)', color: 'var(--danger)' }}>
+                {error}
+              </div>
+            )}
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Open your authenticator app and enter the 6-digit code.
+            </p>
+            <Field label="Authenticator code">
+              <input value={twoCode} onChange={e => setTwoCode(e.target.value.replace(/\D/g,'').slice(0, 10))}
+                inputMode="numeric" autoFocus
+                className="panel-input text-center tracking-[0.4em] text-lg" placeholder="123 456" />
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                Lost your phone? Paste a backup code in the same field.
+              </p>
+            </Field>
+            <button type="submit" disabled={loading || twoCode.length < 6}
+              className="w-full py-2.5 rounded-lg font-semibold text-sm text-white disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}>
+              {loading ? 'Verifying…' : 'Verify and sign in'}
+            </button>
+            <button type="button" onClick={() => { setPreToken(null); setTwoCode(''); setError(''); }}
+              className="w-full text-xs" style={{ color: 'var(--text-muted)' }}>
+              Use a different account
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit}
           className="rounded-xl p-6 space-y-4"
           style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
@@ -121,6 +175,7 @@ export default function Login() {
           <GoogleDivider />
           <GoogleSignInButton onCredential={handleGoogle} onError={(err) => setError(err.message)} />
         </form>
+        )}
 
         <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
           No account?{' '}

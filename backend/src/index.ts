@@ -62,6 +62,13 @@ interface User {
   // Captured by the "How will you use Peekboard?" first-run prompt so we
   // can personalise the dashboard / template list later.
   use_case?:    'work' | 'personal' | 'design-review' | 'moodboard' | 'other';
+  // ── 2FA / session revocation ───────────────────────────────────────────
+  // Any JWT issued before `tokens_valid_after` is rejected by the
+  // authenticate middleware. Bumping it = "sign out of every device".
+  tokens_valid_after?: number;       // ms since epoch
+  totp_secret?:        string;       // base32 — present once enrolled
+  totp_enabled?:       boolean;
+  totp_backup_codes?:  string[];     // bcrypt hashes; consumed on use
 }
 interface Board {
   id: string; name: string; owner_id: string; canvas_data: string;
@@ -84,6 +91,17 @@ interface MagicLink {
   token:      string;
   user_id:    string;
   expires_at: number;     // ms since epoch
+}
+interface Notification {
+  id:         string;
+  user_id:    string;            // recipient
+  type:       'mention' | 'reply' | 'invite';
+  from_user_id?: string;
+  board_id?:    string;
+  comment_id?:  string;
+  text?:        string;          // short body snippet for preview
+  read:         boolean;
+  created_at:   string;
 }
 interface BoardAccess {
   id: string; board_id: string; email: string; user_id: string | null;
@@ -119,6 +137,7 @@ interface DbSchema {
   stars?:           BoardStar[];
   projects?:        Project[];
   magic_links?:     MagicLink[];
+  notifications?:   Notification[];
 }
 
 const readDb = (): DbSchema => {
@@ -129,12 +148,13 @@ const readDb = (): DbSchema => {
     db.stars           ??= [];
     db.projects        ??= [];
     db.magic_links     ??= [];
+    db.notifications   ??= [];
     return db;
   } catch {
     return {
       users: [], boards: [], board_access: [], comments: [],
       password_resets: [], email_verifies: [], stars: [],
-      projects: [], magic_links: [],
+      projects: [], magic_links: [], notifications: [],
     };
   }
 };
@@ -161,13 +181,34 @@ if (IS_PROD) {
 }
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
-interface JwtPayload { id: string; email: string; name: string; avatar_color: string; }
+interface JwtPayload { id: string; email: string; name: string; avatar_color: string; iat?: number; step?: string; }
 
 const authenticate = (req: any, res: any, next: any): void => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
-  try { req.user = jwt.verify(token, JWT_SECRET) as JwtPayload; next(); }
-  catch { res.status(401).json({ error: 'Invalid or expired token' }); }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    // Reject the short-lived "2fa pre-auth" token here so it can't be used
+    // as a full session token. It's only valid for /api/auth/2fa/login.
+    if (payload.step === '2fa') {
+      res.status(401).json({ error: 'Two-factor verification required' });
+      return;
+    }
+    // "Sign out everywhere" support: if the user has bumped
+    // tokens_valid_after since this JWT was issued, reject.
+    if (payload.iat) {
+      const db = readDb();
+      const u = db.users.find(x => x.id === payload.id);
+      if (u?.tokens_valid_after && payload.iat * 1000 < u.tokens_valid_after) {
+        res.status(401).json({ error: 'Session expired. Please sign in again.' });
+        return;
+      }
+    }
+    req.user = payload;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
 };
 
 const getBoardAccess = (boardId: string, userId: string) => {
@@ -280,6 +321,15 @@ app.post('/api/auth/login', async (req, res) => {
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) { res.status(401).json({ error: 'Invalid credentials' }); return; }
+
+  // 2FA: if enrolled, hand the client a short-lived "pre-auth" token and
+  // make them POST a TOTP code to /api/auth/2fa/login before we issue the
+  // real JWT.
+  if (user.totp_enabled) {
+    const preToken = jwt.sign({ id: user.id, step: '2fa' }, JWT_SECRET, { expiresIn: '5m' });
+    res.json({ requires_2fa: true, token: preToken });
+    return;
+  }
 
   const token = jwt.sign(
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
@@ -592,6 +642,9 @@ app.put('/api/boards/:id', authenticate, requireBoardRole(['owner','editor']), (
     board.last_edited_at = now;
   }
   writeDb(db);
+  // Side-effect after persist: throttled version-history snapshot if this
+  // save changed the canvas content.
+  if (canvas_data !== undefined) maybeSnapshot(board, req.user.id);
   res.json({ success: true });
 });
 
@@ -783,14 +836,328 @@ app.post('/api/boards/:id/comments', authenticate, requireBoardRole(['owner','ed
       }
     }
     const boardUrl = `${APP_URL}/board/${board.id}`;
+    const snippet = comment.content.length > 140 ? comment.content.slice(0, 140) + '…' : comment.content;
     for (const id of mentioned) {
       const r = recipients.get(id)!;
       sendMail({ ...mentionEmail(u.name, board.name, comment.content, boardUrl), to: r.email })
         .catch(err => console.warn('[peekboard] mention mail failed', err));
+      // In-app notification — surfaced in the bell icon.
+      db.notifications!.push({
+        id: uuidv4(), user_id: id, type: 'mention', from_user_id: u.id,
+        board_id: board.id, comment_id: comment.id, text: snippet,
+        read: false, created_at: new Date().toISOString(),
+      });
     }
+
+    // Reply notification: ping the original comment's author (unless it's
+    // the same person replying or already covered by an @mention).
+    if (comment.parent_id) {
+      const parent = db.comments.find(c => c.id === comment.parent_id);
+      if (parent && parent.user_id !== u.id && !mentioned.has(parent.user_id)) {
+        db.notifications!.push({
+          id: uuidv4(), user_id: parent.user_id, type: 'reply', from_user_id: u.id,
+          board_id: board.id, comment_id: comment.id, text: snippet,
+          read: false, created_at: new Date().toISOString(),
+        });
+      }
+    }
+    writeDb(db);
   }
 
   res.status(201).json({ comment: { ...comment, user_name: u.name, avatar_color: u.avatar_color } });
+});
+
+// ── Notifications inbox ───────────────────────────────────────────────────────
+app.get('/api/notifications', authenticate, (req: any, res) => {
+  const db = readDb();
+  const items = (db.notifications ?? [])
+    .filter(n => n.user_id === req.user.id)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 100)
+    .map(n => {
+      const from = n.from_user_id ? db.users.find(u => u.id === n.from_user_id) : null;
+      const board = n.board_id    ? db.boards.find(b => b.id === n.board_id)    : null;
+      return {
+        ...n,
+        from_name:        from?.name ?? '',
+        from_avatar:      from?.avatar_color ?? '#888',
+        from_avatar_url:  from?.avatar_url,
+        board_name:       board?.name ?? '',
+      };
+    });
+  res.json({ notifications: items, unread: items.filter(n => !n.read).length });
+});
+
+app.post('/api/notifications/read', authenticate, (req: any, res) => {
+  const { ids } = req.body as { ids?: string[] };
+  const db = readDb();
+  const target = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+  (db.notifications ?? []).forEach(n => {
+    if (n.user_id !== req.user.id) return;
+    if (target && !target.has(n.id)) return;
+    n.read = true;
+  });
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// ── Board version history (file-backed snapshots) ────────────────────────────
+// Snapshots are stored as JSON files under DATA_DIR/snapshots/<board_id>/
+// keyed by ISO timestamp so listing them is just a directory read. We keep
+// at most SNAPSHOT_CAP per board — older snapshots are pruned automatically.
+const SNAPSHOTS_DIR = path.join(DATA_DIR, 'snapshots');
+const SNAPSHOT_CAP  = 40;
+fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+
+const snapshotDirFor = (boardId: string) => {
+  const p = path.join(SNAPSHOTS_DIR, boardId);
+  fs.mkdirSync(p, { recursive: true });
+  return p;
+};
+
+// Helper: write a new snapshot. Called from the board PUT handler after a
+// canvas_data save, throttled to once every 60 s per board so dragging
+// objects doesn't fill the disk.
+const lastSnapAt = new Map<string, number>();
+const maybeSnapshot = (board: Board, userId: string) => {
+  const now = Date.now();
+  const prev = lastSnapAt.get(board.id) ?? 0;
+  if (now - prev < 60_000) return;
+  lastSnapAt.set(board.id, now);
+
+  const dir = snapshotDirFor(board.id);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `${stamp}_${userId}.json`;
+  try {
+    fs.writeFileSync(path.join(dir, filename), board.canvas_data ?? '');
+  } catch (err) {
+    console.warn('[peekboard] snapshot write failed', err);
+    return;
+  }
+  // Cap retention — newest 40 wins.
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+    while (files.length > SNAPSHOT_CAP) {
+      const drop = files.shift()!;
+      try { fs.unlinkSync(path.join(dir, drop)); } catch { /* */ }
+    }
+  } catch { /* */ }
+};
+
+app.get('/api/boards/:id/history',
+  authenticate, requireBoardRole(['owner','editor','commenter','viewer']),
+  (req: any, res) => {
+    const dir = snapshotDirFor(req.params.id);
+    let files: string[] = [];
+    try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse(); }
+    catch { /* */ }
+    const db = readDb();
+    const items = files.map(f => {
+      // filename = ISO-stamp-with-dashes _userId.json
+      const base = f.replace(/\.json$/, '');
+      const idx  = base.lastIndexOf('_');
+      const stampRaw = base.slice(0, idx);
+      const userId   = base.slice(idx + 1);
+      const iso = stampRaw.replace(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, '$1-$2-$3T$4:$5:$6.$7Z');
+      const u = db.users.find(u => u.id === userId);
+      return {
+        id: f, created_at: iso, by_user_id: userId,
+        by_name: u?.name ?? 'Unknown', by_avatar_color: u?.avatar_color ?? '#888',
+      };
+    });
+    res.json({ snapshots: items });
+  }
+);
+
+app.post('/api/boards/:id/history/restore',
+  authenticate, requireBoardRole(['owner','editor']),
+  (req: any, res) => {
+    const { snapshot_id } = req.body as { snapshot_id?: string };
+    if (!snapshot_id || !/^[\w.-]+\.json$/.test(snapshot_id)) {
+      res.status(400).json({ error: 'Bad snapshot id' }); return;
+    }
+    const file = path.join(snapshotDirFor(req.params.id), snapshot_id);
+    if (!fs.existsSync(file)) { res.status(404).json({ error: 'Snapshot not found' }); return; }
+    const data = fs.readFileSync(file, 'utf-8');
+    const db = readDb();
+    const board = db.boards.find(b => b.id === req.params.id)!;
+    // Take a "pre-restore" snapshot first so the action itself is undoable.
+    maybeSnapshot(board, req.user.id);
+    lastSnapAt.delete(board.id);   // force a fresh snapshot on next save
+    board.canvas_data    = data;
+    board.last_edited_by = req.user.id;
+    board.last_edited_at = new Date().toISOString();
+    board.updated_at     = board.last_edited_at;
+    writeDb(db);
+    res.json({ success: true, board });
+  }
+);
+
+// ── 2FA (TOTP) ───────────────────────────────────────────────────────────────
+// Lightweight RFC 6238 implementation so we avoid an extra npm dep. Backed
+// by Node's built-in crypto. Compatible with Google Authenticator, 1Password,
+// Authy, etc.
+function base32Encode(buf: Buffer): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, value = 0, out = '';
+  for (const b of buf) {
+    value = (value << 8) | b; bits += 8;
+    while (bits >= 5) { out += alphabet[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(s: string): Buffer {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, value = 0;
+  const out: number[] = [];
+  for (const ch of s.toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    value = (value << 5) | alphabet.indexOf(ch); bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+function totp(secretBase32: string, step = 30, digits = 6): string {
+  const crypto = require('crypto');
+  const counter = Math.floor(Date.now() / 1000 / step);
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', base32Decode(secretBase32)).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0xf;
+  const code = ((hmac[offset] & 0x7f) << 24)
+             | ((hmac[offset + 1] & 0xff) << 16)
+             | ((hmac[offset + 2] & 0xff) <<  8)
+             | (hmac[offset + 3] & 0xff);
+  return String(code % 10 ** digits).padStart(digits, '0');
+}
+function totpVerify(secret: string, code: string): boolean {
+  // Allow ±1 step of clock drift.
+  const crypto = require('crypto');
+  for (const drift of [-1, 0, 1]) {
+    const counter = Math.floor(Date.now() / 1000 / 30) + drift;
+    const buf = Buffer.alloc(8);
+    buf.writeBigUInt64BE(BigInt(counter));
+    const hmac = crypto.createHmac('sha1', base32Decode(secret)).update(buf).digest();
+    const offset = hmac[hmac.length - 1] & 0xf;
+    const v = ((hmac[offset] & 0x7f) << 24)
+            | ((hmac[offset + 1] & 0xff) << 16)
+            | ((hmac[offset + 2] & 0xff) <<  8)
+            | (hmac[offset + 3] & 0xff);
+    if (String(v % 1_000_000).padStart(6, '0') === code) return true;
+  }
+  return false;
+}
+
+// Start 2FA setup: generate a new secret + return the otpauth:// URL the
+// authenticator app can scan. The secret isn't persisted as "enabled" yet;
+// the user must confirm by typing a code via /confirm below.
+app.post('/api/auth/2fa/setup', authenticate, (req: any, res) => {
+  const crypto = require('crypto');
+  const secret = base32Encode(crypto.randomBytes(20));
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  user.totp_secret = secret;
+  user.totp_enabled = false;
+  writeDb(db);
+  const label   = encodeURIComponent(`Peekboard:${user.email}`);
+  const issuer  = encodeURIComponent('Peekboard');
+  const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+  res.json({ otpauth, secret });
+});
+
+// Confirm a generated code, flip totp_enabled, and return one-time backup
+// codes. The codes are stored as bcrypt hashes so a server compromise
+// doesn't leak them.
+app.post('/api/auth/2fa/confirm', authenticate, async (req: any, res) => {
+  const { code } = req.body as { code?: string };
+  if (!code) { res.status(400).json({ error: 'Code required' }); return; }
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user?.totp_secret) { res.status(400).json({ error: 'Run setup first' }); return; }
+  if (!totpVerify(user.totp_secret, code)) { res.status(401).json({ error: 'Code is incorrect' }); return; }
+  // Issue 8 backup codes.
+  const crypto = require('crypto');
+  const backup: string[] = [];
+  user.totp_backup_codes = [];
+  for (let i = 0; i < 8; i++) {
+    const raw = crypto.randomBytes(5).toString('hex');
+    backup.push(raw);
+    user.totp_backup_codes.push(await bcrypt.hash(raw, 8));
+  }
+  user.totp_enabled = true;
+  writeDb(db);
+  res.json({ success: true, backup_codes: backup });
+});
+
+// Turn 2FA off. Requires either the user's current TOTP code or one of the
+// backup codes to prevent a hijacked session from silently disabling it.
+app.post('/api/auth/2fa/disable', authenticate, async (req: any, res) => {
+  const { code } = req.body as { code?: string };
+  if (!code) { res.status(400).json({ error: 'Code required' }); return; }
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user?.totp_enabled || !user.totp_secret) { res.status(400).json({ error: '2FA not enabled' }); return; }
+  let ok = totpVerify(user.totp_secret, code);
+  if (!ok && user.totp_backup_codes) {
+    for (let i = 0; i < user.totp_backup_codes.length; i++) {
+      if (await bcrypt.compare(code, user.totp_backup_codes[i])) {
+        ok = true; user.totp_backup_codes.splice(i, 1); break;
+      }
+    }
+  }
+  if (!ok) { res.status(401).json({ error: 'Code is incorrect' }); return; }
+  user.totp_enabled = false;
+  delete user.totp_secret;
+  delete user.totp_backup_codes;
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// Step-up verification at login. When /login or /magic/verify detects that
+// the user has 2FA enabled it returns `requires_2fa: true` + a short-lived
+// 2fa-only JWT; the client POSTs that token + the 6-digit code here to get
+// the real JWT.
+app.post('/api/auth/2fa/login', async (req, res) => {
+  const { token: pre, code } = req.body as { token?: string; code?: string };
+  if (!pre || !code) { res.status(400).json({ error: 'Token and code required' }); return; }
+  let payload: { id: string; step: string };
+  try { payload = jwt.verify(pre, JWT_SECRET) as any; }
+  catch { res.status(401).json({ error: 'Pre-auth token expired' }); return; }
+  if ((payload as any).step !== '2fa') { res.status(401).json({ error: 'Wrong token type' }); return; }
+  const db = readDb();
+  const user = db.users.find(u => u.id === payload.id);
+  if (!user?.totp_enabled || !user.totp_secret) { res.status(400).json({ error: '2FA not enabled' }); return; }
+  let ok = totpVerify(user.totp_secret, code);
+  if (!ok && user.totp_backup_codes) {
+    for (let i = 0; i < user.totp_backup_codes.length; i++) {
+      if (await bcrypt.compare(code, user.totp_backup_codes[i])) {
+        ok = true; user.totp_backup_codes.splice(i, 1); writeDb(db); break;
+      }
+    }
+  }
+  if (!ok) { res.status(401).json({ error: 'Code is incorrect' }); return; }
+  const token = jwt.sign(
+    { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
+    JWT_SECRET, { expiresIn: '365d' }
+  );
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified, avatar_url: user.avatar_url, use_case: user.use_case } });
+});
+
+// "Sign out of all devices" — bumps tokens_valid_after, invalidating every
+// JWT that was issued before this moment.
+app.post('/api/auth/sign-out-all', authenticate, (req: any, res) => {
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  user.tokens_valid_after = Date.now();
+  writeDb(db);
+  // Issue the caller a fresh token so they aren't immediately logged out.
+  const fresh = jwt.sign(
+    { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
+    JWT_SECRET, { expiresIn: '365d' }
+  );
+  res.json({ success: true, token: fresh });
 });
 
 app.patch('/api/comments/:id/resolve', authenticate, (req: any, res) => {

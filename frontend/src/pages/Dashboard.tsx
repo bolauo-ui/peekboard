@@ -12,6 +12,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 import UseCaseModal from '@/components/UseCaseModal';
 import AvatarImage from '@/components/AvatarImage';
+import NotificationsBell from '@/components/NotificationsBell';
 
 function timeAgo(d: string) {
   const diff = Date.now() - new Date(d).getTime();
@@ -221,6 +222,7 @@ export default function Dashboard() {
           <span className="text-base font-bold text-gray-900">Peekboard</span>
         </div>
         <div className="flex items-center gap-3">
+          <NotificationsBell />
           <AvatarImage name={user?.name || '?'} color={user?.avatar_color || '#7b68ee'} url={user?.avatar_url} size={28} />
           <span className="text-sm font-medium text-gray-700 hidden sm:block">{user?.name}</span>
           <button onClick={() => navigate('/settings')}
@@ -299,6 +301,22 @@ export default function Dashboard() {
         </aside>
 
       <main className="flex-1 min-w-0 max-w-6xl mx-auto w-full px-6 py-8">
+        {/* Profile-completeness nudge — only when there's something worth nudging
+            about, dismissed for this browser via localStorage. */}
+        {user && !user.avatar_url && localStorage.getItem('mb_nudge_dismissed') !== '1' && (
+          <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
+            style={{ background: 'rgba(123,104,238,0.06)', border: '1px solid rgba(123,104,238,0.25)', color: '#5b4edc' }}>
+            <Sparkles size={13} />
+            <span className="flex-1">
+              Round out your profile so teammates recognise you — <strong>add a photo</strong> in settings.
+            </span>
+            <button onClick={() => navigate('/settings')}
+              className="font-semibold underline">Open settings</button>
+            <button onClick={() => { localStorage.setItem('mb_nudge_dismissed', '1'); window.location.reload(); }}
+              className="text-[11px]" style={{ color: '#5b4edc', opacity: 0.6 }}>Dismiss</button>
+          </div>
+        )}
+
         {/* Email-verification banner — auto-hides once verified or dismissed. */}
         {user && user.email_verified === false && (
           <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"

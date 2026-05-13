@@ -9,13 +9,30 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
+// Paths that legitimately return 401 as a form-level signal (wrong code,
+// wrong password, expired magic link). For these we let the caller handle
+// the error inline instead of kicking the user out of their session.
+const NON_FATAL_401 = [
+  '/auth/2fa/confirm',
+  '/auth/2fa/disable',
+  '/auth/2fa/login',
+  '/auth/magic/verify',
+  '/auth/password',
+  '/auth/reset',
+  '/auth/login',
+];
+
 http.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('mb_token');
-      localStorage.removeItem('mb_user');
-      window.location.href = '/login';
+      const url: string = err.config?.url ?? '';
+      const isInline = NON_FATAL_401.some(p => url.includes(p));
+      if (!isInline) {
+        localStorage.removeItem('mb_token');
+        localStorage.removeItem('mb_user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(err);
   }
@@ -63,6 +80,16 @@ export const authApi = {
     http.post<{ user: User }>('/auth/avatar', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data),
+
+  // 2FA / TOTP setup flow.
+  twoFaSetup:    () => http.post<{ otpauth: string; secret: string }>('/auth/2fa/setup').then((r) => r.data),
+  twoFaConfirm:  (code: string) => http.post<{ success: boolean; backup_codes: string[] }>('/auth/2fa/confirm', { code }).then((r) => r.data),
+  twoFaDisable:  (code: string) => http.post<{ success: boolean }>('/auth/2fa/disable', { code }).then((r) => r.data),
+  twoFaLogin:    (token: string, code: string) =>
+    http.post<{ token: string; user: User }>('/auth/2fa/login', { token, code }).then((r) => r.data),
+
+  signOutEverywhere: () =>
+    http.post<{ success: boolean; token: string }>('/auth/sign-out-all').then((r) => r.data),
 };
 
 // ── Boards ────────────────────────────────────────────────────────────────────
@@ -112,7 +139,40 @@ export const boardsApi = {
   // Upload a canvas snapshot used as the dashboard preview.
   thumbnail: (id: string, image: string) =>
     http.post<{ success: boolean; thumbnail_url: string }>(`/boards/${id}/thumbnail`, { image }).then((r) => r.data),
+
+  // Version history.
+  history: (id: string) =>
+    http.get<{ snapshots: BoardSnapshot[] }>(`/boards/${id}/history`).then((r) => r.data),
+  restore: (id: string, snapshot_id: string) =>
+    http.post<{ success: boolean }>(`/boards/${id}/history/restore`, { snapshot_id }).then((r) => r.data),
 };
+
+// ── Notifications ────────────────────────────────────────────────────────────
+export interface AppNotification {
+  id:               string;
+  type:             'mention' | 'reply' | 'invite';
+  read:             boolean;
+  created_at:       string;
+  from_name:        string;
+  from_avatar:      string;
+  from_avatar_url?: string;
+  board_id?:        string;
+  board_name?:      string;
+  comment_id?:      string;
+  text?:            string;
+}
+export const notificationsApi = {
+  list:     () => http.get<{ notifications: AppNotification[]; unread: number }>('/notifications').then((r) => r.data),
+  markRead: (ids?: string[]) => http.post<{ success: boolean }>('/notifications/read', { ids }).then((r) => r.data),
+};
+
+export interface BoardSnapshot {
+  id:               string;
+  created_at:       string;
+  by_user_id:       string;
+  by_name:          string;
+  by_avatar_color:  string;
+}
 
 // ── Projects (folders) ────────────────────────────────────────────────────────
 export const projectsApi = {
