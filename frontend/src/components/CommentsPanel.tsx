@@ -77,7 +77,9 @@ function Avatar({ name, color, size = 28 }: { name: string; color: string; size?
         width: size, height: size,
         backgroundColor: color,
         fontSize: size <= 22 ? 10 : 12,
-        boxShadow: '0 0 0 2px #fff',
+        // Ring matches the panel background so stacked avatars read cleanly
+        // on the dark sidebar.
+        boxShadow: '0 0 0 2px var(--bg-panel)',
       }}
     >
       {name.charAt(0).toUpperCase()}
@@ -130,29 +132,23 @@ export default function CommentsPanel({
   return (
     <aside
       className="w-80 flex flex-col flex-shrink-0"
-      style={{ background: '#ffffff', borderLeft: '1px solid #e5e7eb', color: '#1f2024' }}
+      style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', color: 'var(--text-primary)' }}
     >
       {/* Title row */}
-      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #f1f2f4' }}>
+      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border-light)' }}>
         <span className="text-sm font-semibold">Comments</span>
-        <span className="text-xs font-medium flex items-center gap-0.5" style={{ color: '#6b7280' }}>
-          {Math.round(zoom * 100)}%
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </span>
       </div>
 
       {/* Search + filter + more */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: '1px solid #f1f2f4' }}>
+      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: '1px solid var(--border-light)' }}>
         <div className="flex-1 relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: '#9ca3af' }} />
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search"
             className="w-full text-[13px] rounded-md pl-7 pr-2 py-1.5 outline-none"
-            style={{ background: '#f3f4f6', color: '#1f2024' }}
+            style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
           />
         </div>
         <button
@@ -160,9 +156,9 @@ export default function CommentsPanel({
           title={showResolved ? 'Hide resolved' : 'Show resolved'}
           className="rounded-full p-1.5 transition-colors"
           style={{
-            background: showResolved ? '#eef2ff' : 'transparent',
-            color:      showResolved ? '#2680eb' : '#1f2024',
-            border:     '1px solid ' + (showResolved ? '#c7d2fe' : '#e5e7eb'),
+            background: showResolved ? 'var(--accent-dim)' : 'transparent',
+            color:      showResolved ? 'var(--accent)'    : 'var(--text-secondary)',
+            border:     '1px solid ' + (showResolved ? 'var(--accent)' : 'var(--border)'),
           }}
         >
           <ListFilter size={14} />
@@ -171,8 +167,8 @@ export default function CommentsPanel({
           <button
             onClick={() => setMoreMenuOpen(v => !v)}
             className="rounded-full p-1.5 transition-colors"
-            style={{ color: '#1f2024' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
             <MoreHorizontal size={14} />
@@ -180,16 +176,27 @@ export default function CommentsPanel({
           {moreMenuOpen && (
             <div
               className="absolute right-0 top-9 rounded-md py-1 z-50"
-              style={{ background: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.18)', border: '1px solid #ececef', minWidth: 180 }}
+              style={{
+                background: 'var(--bg-panel)',
+                boxShadow:  '0 10px 28px rgba(0,0,0,0.4)',
+                border:     '1px solid var(--border)',
+                minWidth:   180,
+              }}
               onMouseLeave={() => setMoreMenuOpen(false)}
             >
               <button onClick={() => { onToggleResolved(); setMoreMenuOpen(false); }}
-                className="w-full text-left text-[12.5px] px-3 py-1.5 hover:bg-gray-50">
+                className="w-full text-left text-[12.5px] px-3 py-1.5"
+                style={{ color: 'var(--text-primary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                 {showResolved ? 'Hide resolved' : 'Show resolved'}
               </button>
               {canComment && (
                 <button onClick={() => { onToolChange('comment'); setMoreMenuOpen(false); }}
-                  className="w-full text-left text-[12.5px] px-3 py-1.5 hover:bg-gray-50">
+                  className="w-full text-left text-[12.5px] px-3 py-1.5"
+                  style={{ color: 'var(--text-primary)' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                   Add a pin
                 </button>
               )}
@@ -202,11 +209,11 @@ export default function CommentsPanel({
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
-            <span className="text-sm font-medium" style={{ color: '#9ca3af' }}>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
               {search.trim() ? 'No matches' : 'No comments yet'}
             </span>
             {canComment && !search.trim() && (
-              <span className="text-xs mt-1" style={{ color: '#9ca3af' }}>
+              <span className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
                 Pick the comment tool, then click the canvas.
               </span>
             )}
@@ -228,10 +235,13 @@ export default function CommentsPanel({
                   key={c.id}
                   className="px-4 py-3 cursor-pointer transition-colors"
                   style={{
-                    background: isActive ? '#eaf2ff' : 'transparent',
+                    background: isActive ? 'var(--accent-dim)' : 'transparent',
+                    borderBottom: '1px solid var(--border-light)',
                     opacity:    c.resolved ? 0.55 : 1,
                   }}
                   onClick={() => onOpenPin(isActive ? null : c.id)}
+                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                 >
                   {/* Avatars + unread dot */}
                   <div className="flex items-center gap-1.5 mb-1.5">
@@ -244,13 +254,13 @@ export default function CommentsPanel({
                     {!c.resolved && (
                       <span
                         className="ml-auto block rounded-full"
-                        style={{ width: 7, height: 7, background: isActive ? '#2680eb' : '#2680eb' }}
+                        style={{ width: 7, height: 7, background: 'var(--accent)' }}
                       />
                     )}
                     {c.resolved && (
                       <span
                         className="ml-auto inline-flex items-center justify-center rounded-full"
-                        style={{ width: 14, height: 14, border: '1px solid #10b981', color: '#10b981' }}
+                        style={{ width: 14, height: 14, border: '1px solid #34d399', color: '#34d399' }}
                         title="Resolved"
                       >
                         <Check size={9} strokeWidth={3} />
@@ -259,18 +269,18 @@ export default function CommentsPanel({
                   </div>
 
                   {/* Frame label: #N · Frame name */}
-                  <div className="text-[12px] mb-0.5" style={{ color: '#9ca3af' }}>
+                  <div className="text-[12px] mb-0.5" style={{ color: 'var(--text-muted)' }}>
                     {pinNum ? `#${pinNum} · ${containerLabel}` : containerLabel}
                   </div>
 
                   {/* Author + time */}
                   <div className="text-[13px] leading-tight">
-                    <span className="font-semibold" style={{ color: '#1f2024' }}>{c.user_name}</span>
-                    <span className="ml-2" style={{ color: '#9ca3af' }}>{timeAgo(c.created_at)}</span>
+                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{c.user_name}</span>
+                    <span className="ml-2" style={{ color: 'var(--text-muted)' }}>{timeAgo(c.created_at)}</span>
                   </div>
 
                   {/* Body */}
-                  <p className="text-[13.5px] leading-snug mt-1 break-words" style={{ color: '#1f2024' }}>
+                  <p className="text-[13.5px] leading-snug mt-1 break-words" style={{ color: 'var(--text-secondary)' }}>
                     {renderWithMentions(body)}
                   </p>
 
@@ -282,7 +292,7 @@ export default function CommentsPanel({
                         setExpandedReplies(p => ({ ...p, [c.id]: !p[c.id] }));
                       }}
                       className="text-[12.5px] mt-1.5 font-medium"
-                      style={{ color: '#2680eb' }}
+                      style={{ color: 'var(--accent)' }}
                     >
                       {isExpanded
                         ? 'Hide replies'
@@ -293,16 +303,16 @@ export default function CommentsPanel({
                   {/* Expanded replies (collapse-only when not active so the
                       hover state doesn't get cluttered) */}
                   {(isExpanded || isActive) && threadReplies.length > 0 && (
-                    <ul className="mt-2 ml-1 space-y-2 pl-2.5" style={{ borderLeft: '2px solid #e5e7eb' }} onClick={(e) => e.stopPropagation()}>
+                    <ul className="mt-2 ml-1 space-y-2 pl-2.5" style={{ borderLeft: '2px solid var(--border)' }} onClick={(e) => e.stopPropagation()}>
                       {threadReplies.map(r => (
                         <li key={r.id} className="flex gap-1.5">
                           <Avatar name={r.user_name} color={r.avatar_color} size={20} />
                           <div className="min-w-0">
                             <div className="text-[12px]">
-                              <span className="font-semibold" style={{ color: '#1f2024' }}>{r.user_name}</span>
-                              <span className="ml-1.5" style={{ color: '#9ca3af' }}>{timeAgo(r.created_at)}</span>
+                              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{r.user_name}</span>
+                              <span className="ml-1.5" style={{ color: 'var(--text-muted)' }}>{timeAgo(r.created_at)}</span>
                             </div>
-                            <p className="text-[13px] leading-snug mt-0.5 break-words" style={{ color: '#1f2024' }}>
+                            <p className="text-[13px] leading-snug mt-0.5 break-words" style={{ color: 'var(--text-secondary)' }}>
                               {renderWithMentions(r.content)}
                             </p>
                           </div>
@@ -324,7 +334,7 @@ export default function CommentsPanel({
                           }}
                           placeholder="Reply…"
                           className="flex-1 text-[13px] rounded-full px-3 py-1.5 outline-none"
-                          style={{ background: '#f3f4f6', color: '#1f2024' }}
+                          style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                         />
                       )}
                       {(c.user_id === currentUser.id || role === 'owner') && (
@@ -333,9 +343,9 @@ export default function CommentsPanel({
                             onClick={() => onResolve(c.id)}
                             title="Resolve"
                             className="p-1.5 rounded-full"
-                            style={{ color: '#1f2024' }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = '#10b981')}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = '#1f2024')}
+                            style={{ color: 'var(--text-secondary)' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = '#34d399')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
                           >
                             <span className="inline-flex items-center justify-center rounded-full"
                               style={{ width: 18, height: 18, border: '1.5px solid currentColor' }}>
@@ -346,9 +356,9 @@ export default function CommentsPanel({
                             onClick={() => onDelete(c.id)}
                             title="Delete"
                             className="p-1.5 rounded-full"
-                            style={{ color: '#1f2024' }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = '#dc2626')}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = '#1f2024')}
+                            style={{ color: 'var(--text-secondary)' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
                           >
                             <Trash2 size={14} />
                           </button>
