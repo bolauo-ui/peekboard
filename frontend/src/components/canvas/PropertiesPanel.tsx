@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fabric } from 'fabric';
 import { Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import FontPicker from '@/components/canvas/FontPicker';
 
 interface Props {
   selectedObject: fabric.Object | null;
@@ -117,14 +118,13 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
             <div className="panel-section">
               <SectionHeader>Typography</SectionHeader>
 
-              <select
-                value={fontFamily}
-                onChange={e => { setFontFamily(e.target.value); apply({ fontFamily: e.target.value }); }}
-                disabled={!canEdit}
-                className="panel-input mb-2"
-              >
-                {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
+              <div className="mb-2">
+                <FontPicker
+                  value={fontFamily}
+                  disabled={!canEdit}
+                  onChange={(v) => { setFontFamily(v); apply({ fontFamily: v }); }}
+                />
+              </div>
 
               <div className="flex gap-1.5 mb-2">
                 <div className="flex-1">

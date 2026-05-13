@@ -30,28 +30,37 @@ function getLayerInfo(obj: fabric.Object, selected: fabric.Object | null, index:
   let name = 'Layer';
   let type: LayerInfo['type'] = 'shape';
 
+  // A user-overridden layer name always wins over the type-derived one.
+  if (data.layerName) {
+    name = data.layerName;
+  }
+
   if (data.type === 'frame' || data.objectType === 'frame') {
-    name = data.frameName ?? 'Frame';
+    if (!data.layerName) name = data.frameName ?? 'Frame';
     type = 'frame';
   } else if (obj instanceof fabric.IText || obj instanceof fabric.Text) {
-    const raw = ((obj as fabric.IText).text ?? '').trim();
-    name = raw.length > 22 ? raw.slice(0, 22) + '…' : raw || 'Text';
+    if (!data.layerName) {
+      const raw = ((obj as fabric.IText).text ?? '').trim();
+      name = raw.length > 22 ? raw.slice(0, 22) + '…' : raw || 'Text';
+    }
     type = 'text';
   } else if (data.mediaType === 'gif') {
-    name = 'GIF';
+    if (!data.layerName) name = 'GIF';
     type = 'gif';
   } else if (data.mediaType === 'mp4' || data.mediaType === 'webm') {
-    name = 'Video';
+    if (!data.layerName) name = 'Video';
     type = 'video';
   } else if (data.objectType === 'svg') {
-    name = 'SVG';
+    if (!data.layerName) name = 'SVG';
     type = 'svg';
   } else if (data.objectType === 'image' || obj instanceof fabric.Image) {
-    name = 'Image';
+    if (!data.layerName) name = 'Image';
     type = 'image';
   } else if (obj instanceof fabric.Group) {
-    const count = (obj as fabric.Group).getObjects().length;
-    name = `Group (${count})`;
+    if (!data.layerName) {
+      const count = (obj as fabric.Group).getObjects().length;
+      name = `Group (${count})`;
+    }
     type = 'group';
   }
 
@@ -81,6 +90,24 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 export default function LayerPanel({ canvas, selectedObject, onSelect, layerVersion, canEdit }: Props) {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  const [editingId,   setEditingId]   = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+
+  // Commit a renamed layer: write to data.layerName (and also data.frameName
+  // for frames so the canvas-rendered label stays in sync) and force the
+  // panel to re-render through the existing layerVersion bus.
+  const commitRename = (obj: fabric.Object) => {
+    const trimmed = editingName.trim();
+    if (trimmed) {
+      const data = ((obj as any).data ??= {});
+      data.layerName = trimmed;
+      if (data.type === 'frame' || data.objectType === 'frame') data.frameName = trimmed;
+      canvas?.fire('object:modified', { target: obj });
+      canvas?.requestRenderAll();
+    }
+    setEditingId(null);
+    setEditingName('');
+  };
 
   const layers = useMemo(() => {
     if (!canvas) return [] as LayerInfo[];
@@ -250,13 +277,41 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
                 {TYPE_ICON[layer.type]}
               </span>
 
-              {/* Name */}
-              <span
-                className="flex-1 text-xs truncate"
-                style={{ color: layer.isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-              >
-                {layer.name}
-              </span>
+              {/* Name (double-click to rename inline) */}
+              {editingId === layer.id ? (
+                <input
+                  autoFocus
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onBlur={() => commitRename(layer.obj)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter')  commitRename(layer.obj);
+                    if (e.key === 'Escape') { setEditingId(null); setEditingName(''); }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 text-xs rounded px-1 py-0.5 outline-none"
+                  style={{
+                    background:  'var(--bg-input)',
+                    color:       'var(--text-primary)',
+                    border:      '1px solid var(--accent)',
+                  }}
+                />
+              ) : (
+                <span
+                  className="flex-1 text-xs truncate"
+                  style={{ color: layer.isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+                  onDoubleClick={(e) => {
+                    if (!canEdit) return;
+                    e.stopPropagation();
+                    setEditingId(layer.id);
+                    setEditingName(layer.name);
+                  }}
+                  title={canEdit ? 'Double-click to rename' : undefined}
+                >
+                  {layer.name}
+                </span>
+              )}
 
               {/* Action buttons — always visible on selected, hover otherwise */}
               <div className={`flex items-center gap-0.5 ${layer.isSelected ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>

@@ -436,6 +436,45 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       }, { crossOrigin: 'anonymous' });
     }, [pushHistory]);
 
+    // ── SVG paste ────────────────────────────────────────────────────────────
+    // Sanitize raw SVG markup (strip <script> + on*= attributes) and load it
+    // onto the canvas, dropped at the centre of the current viewport. The
+    // user can then resize / recolour like any other Fabric object.
+    const importSvgToCanvas = useCallback((canvas: fabric.Canvas, rawSvg: string) => {
+      // Strip <script>...</script> blocks and any on* handlers for safety.
+      const sanitized = rawSvg
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+        .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+
+      (fabric as any).loadSVGFromString(sanitized, (objects: any[], options: any) => {
+        if (!objects || !objects.length) {
+          alert('Could not parse SVG — try copying again from Figma.');
+          return;
+        }
+        const grouped = (fabric.util as any).groupSVGElements(objects, options);
+
+        // Place at the centre of the current viewport (world coords).
+        const vpt  = canvas.viewportTransform!;
+        const zoom = canvas.getZoom();
+        const cx   = (canvas.width!  / 2 - vpt[4]) / zoom;
+        const cy   = (canvas.height! / 2 - vpt[5]) / zoom;
+        const sw   = (grouped.width  ?? 100);
+        const sh   = (grouped.height ?? 100);
+
+        grouped.set({
+          left: cx - sw / 2,
+          top:  cy - sh / 2,
+          data: { id: uuidv4(), objectType: 'svg', source: 'figma' },
+        });
+        canvas.add(grouped);
+        canvas.setActiveObject(grouped);
+        canvas.renderAll();
+        scheduleRef.current();
+        pushHistory();
+      }, undefined, { crossOrigin: 'anonymous' });
+    }, [pushHistory]);
+
     // ── Canvas init ──────────────────────────────────────────────────────────
     useEffect(() => {
       const el = canvasElRef.current;
@@ -807,24 +846,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
         const items = Array.from(e.clipboardData?.items ?? []);
 
-        // 1. SVG — highest fidelity from Figma "Copy as SVG"
+        // 1. SVG — highest fidelity from Figma "Copy as SVG".
+        //    Figma sometimes attaches it as `image/svg+xml`, sometimes only as
+        //    `text/plain` containing raw `<svg …>` markup. Handle both.
         const svgItem = items.find(i => i.type === 'image/svg+xml');
-        if (svgItem) {
+        const textPromise: Promise<string | null> = svgItem
+          ? Promise.resolve(svgItem.getAsFile()?.text() ?? Promise.resolve(null))
+          : (async () => {
+              const t = items.find(i => i.type === 'text/plain');
+              if (!t) return null;
+              const str = await new Promise<string>(res => t.getAsString(res));
+              return /<svg[\s>]/i.test(str) ? str : null;
+            })();
+
+        const rawSvg = await textPromise;
+        if (rawSvg) {
           e.preventDefault();
-          const blob = svgItem.getAsFile();
-          if (!blob) return;
-          const text = await blob.text();
-          (fabric as any).loadSVGFromString(text, (objects: any[], options: any) => {
-            if (!objects.length) return;
-            const svg = (fabric.util as any).groupSVGElements(objects, options);
-            svg.set({
-              left: canvas.width!  / 2 - ((svg.width  ?? 100) / 2),
-              top:  canvas.height! / 2 - ((svg.height ?? 100) / 2),
-              data: { id: uuidv4(), objectType: 'svg' },
-            });
-            canvas.add(svg); canvas.setActiveObject(svg);
-            canvas.renderAll(); scheduleRef.current(); pushHistory();
-          });
+          importSvgToCanvas(canvas, rawSvg);
           return;
         }
 
@@ -872,7 +910,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
       window.addEventListener('paste', onPaste);
       return () => window.removeEventListener('paste', onPaste);
-    }, [addImageUrl, pushHistory]);
+    }, [addImageUrl, importSvgToCanvas, pushHistory]);
 
     // ── Media helpers ─────────────────────────────────────────────────────────
     const addMediaFn = (

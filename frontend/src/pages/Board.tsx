@@ -13,6 +13,7 @@ import ShareModal from '@/components/ShareModal';
 import CommentsPanel from '@/components/CommentsPanel';
 import CommentsOverlay, { type BoardMemberLite } from '@/components/canvas/CommentsOverlay';
 import ZoomControl from '@/components/canvas/ZoomControl';
+import ContextMenu from '@/components/canvas/ContextMenu';
 
 export default function Board() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +43,7 @@ export default function Board() {
   const [members,         setMembers]         = useState<BoardMemberLite[]>([]);
   const [showResolved,    setShowResolved]    = useState(false);
   const [openPinId,       setOpenPinId]       = useState<string | null>(null);
+  const [ctxMenu,         setCtxMenu]         = useState<{ x: number; y: number; target: fabric.Object } | null>(null);
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,6 +106,27 @@ export default function Board() {
     setComments(p => p.map(c => c.id === commentId ? { ...c, resolved: 1 } : c));
   }, []);
 
+  // ── Right-click context menu on canvas objects ───────────────────────────
+  // Fabric routes events through its own upper canvas, so attach the native
+  // `contextmenu` listener there. Hits return the topmost object under the
+  // pointer; misses fall through so the browser's default menu can still
+  // appear over the empty background if needed.
+  useEffect(() => {
+    if (!canvas) return;
+    const el = (canvas as any).upperCanvasEl as HTMLCanvasElement | undefined;
+    if (!el) return;
+    const onCtx = (e: MouseEvent) => {
+      const target = canvas.findTarget(e as any, false);
+      if (!target) return;
+      e.preventDefault();
+      canvas.setActiveObject(target);
+      canvas.renderAll();
+      setCtxMenu({ x: e.clientX, y: e.clientY, target });
+    };
+    el.addEventListener('contextmenu', onCtx);
+    return () => el.removeEventListener('contextmenu', onCtx);
+  }, [canvas]);
+
   const deleteComment = useCallback(async (commentId: string) => {
     await commentsApi.delete(commentId);
     setComments(p => p.filter(c => c.id !== commentId));
@@ -159,6 +182,23 @@ export default function Board() {
       if (meta && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         editorRef.current?.flushSave();
+        return;
+      }
+
+      // ── Z-order shortcuts (Figma parity) ─────────────────────────────────
+      // [  → send backward · Shift+[ → send to back
+      // ]  → bring forward · Shift+] → bring to front
+      if (!meta && (e.key === '[' || e.key === ']' || e.key === '{' || e.key === '}')) {
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) {
+          e.preventDefault();
+          if (e.key === '{')      c.sendToBack(obj);
+          else if (e.key === '[') c.sendBackwards(obj);
+          else if (e.key === '}') c.bringToFront(obj);
+          else if (e.key === ']') c.bringForward(obj);
+          c.renderAll();
+        }
         return;
       }
 
@@ -488,6 +528,18 @@ export default function Board() {
 
       {showShare && user && (
         <ShareModal boardId={board.id} currentUser={user} onClose={() => setShowShare(false)} />
+      )}
+
+      {ctxMenu && (
+        <ContextMenu
+          canvas={canvas}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          target={ctxMenu.target}
+          canEdit={board.role === 'owner' || board.role === 'editor'}
+          onClose={() => setCtxMenu(null)}
+          onChange={() => { /* fabric mutations already trigger object:modified; nothing extra */ }}
+        />
       )}
     </div>
   );
