@@ -14,16 +14,26 @@ export interface MailMessage {
   replyTo?:  string;
 }
 
-// Send an email. Resolves true on a real send, false when it falls back to
-// console-only mode (caller can decide whether to surface that to the user).
-export async function sendMail(msg: MailMessage): Promise<boolean> {
+export type MailResult =
+  | { delivered: true }
+  | { delivered: false; reason: 'no-api-key' | 'resend-error' | 'exception'; detail?: string };
+
+// True when the operator has wired up a real transport. Used by endpoints
+// so they can honestly tell the UI whether the email actually went out.
+export function isMailConfigured(): boolean {
+  return !!RESEND_API_KEY;
+}
+
+// Send an email. Returns `delivered: true` on success; otherwise returns the
+// reason so callers can surface it to the user instead of lying about it.
+export async function sendMail(msg: MailMessage): Promise<MailResult> {
   if (!RESEND_API_KEY) {
     console.log('\n[peekboard:mail] (no RESEND_API_KEY — printing only)');
     console.log('  to:      ', msg.to);
     console.log('  subject: ', msg.subject);
     console.log('  text:    ', msg.text.replace(/\n/g, '\n           '));
     console.log('');
-    return false;
+    return { delivered: false, reason: 'no-api-key' };
   }
 
   try {
@@ -45,12 +55,12 @@ export async function sendMail(msg: MailMessage): Promise<boolean> {
     if (!r.ok) {
       const body = await r.text();
       console.warn('[peekboard:mail] Resend error', r.status, body);
-      return false;
+      return { delivered: false, reason: 'resend-error', detail: `${r.status} ${body}` };
     }
-    return true;
-  } catch (err) {
+    return { delivered: true };
+  } catch (err: any) {
     console.warn('[peekboard:mail] send failed', err);
-    return false;
+    return { delivered: false, reason: 'exception', detail: String(err?.message ?? err) };
   }
 }
 

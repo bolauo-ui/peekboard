@@ -42,7 +42,13 @@ export default function Dashboard() {
   const [search,       setSearch]       = useState('');
   const [paletteOpen,  setPaletteOpen]  = useState(false);
   const [shortcutsOpen,setShortcutsOpen]= useState(false);
-  const [verifyState,  setVerifyState]  = useState<'idle'|'sent'>('idle');
+  const [verifyState,  setVerifyState]  = useState<'idle'|'sent'|'logged'>('idle');
+  const [mailConfigured, setMailConfigured] = useState<boolean | null>(null);
+  // Probe once on mount so we can tell the user upfront whether the server
+  // is actually wired up to send email (RESEND_API_KEY set).
+  useEffect(() => {
+    authApi.systemStatus().then(r => setMailConfigured(r.mail_configured)).catch(() => {});
+  }, []);
 
   // null = "All boards", else a specific project id.
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -96,8 +102,13 @@ export default function Dashboard() {
   };
 
   const resendVerify = async () => {
-    try { await authApi.resendVerifyEmail(); setVerifyState('sent'); }
-    catch { /* swallow */ }
+    try {
+      const r = await authApi.resendVerifyEmail();
+      // Tell the truth: if the server actually delivered it, "sent". If it
+      // only logged it (no API key), be honest — saying "sent" when the
+      // inbox stays empty is worse than telling the user the truth.
+      setVerifyState(r.delivered ? 'sent' : 'logged');
+    } catch { /* swallow */ }
   };
 
   // ── Use-case capture ─────────────────────────────────────────────────────
@@ -320,14 +331,32 @@ export default function Dashboard() {
         {/* Email-verification banner — auto-hides once verified or dismissed. */}
         {user && user.email_verified === false && (
           <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
-            style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#92400e' }}>
+            style={{
+              background: verifyState === 'logged' ? 'rgba(240,82,82,0.08)' : 'rgba(251,191,36,0.1)',
+              border:     verifyState === 'logged' ? '1px solid rgba(240,82,82,0.3)' : '1px solid rgba(251,191,36,0.3)',
+              color:      verifyState === 'logged' ? '#9a3412' : '#92400e',
+            }}>
             <AlertCircle size={13} />
             <span className="flex-1">
-              {verifyState === 'sent'
-                ? 'Verification email re-sent — check your inbox.'
-                : <>Please verify your email — we sent a link to <strong>{user.email}</strong>.</>}
+              {verifyState === 'sent' ? (
+                <>Verification email sent — check your inbox at <strong>{user.email}</strong>.</>
+              ) : verifyState === 'logged' ? (
+                <>
+                  Email delivery isn't configured on this server yet — your verification link
+                  was written to the server logs instead of being sent. Set
+                  <code className="mx-1 px-1 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>RESEND_API_KEY</code>
+                  in Railway and try again.
+                </>
+              ) : mailConfigured === false ? (
+                <>
+                  Email delivery isn't configured on this server — verification links can't be sent.
+                  Set <code className="mx-1 px-1 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>RESEND_API_KEY</code> in Railway.
+                </>
+              ) : (
+                <>Please verify your email — we sent a link to <strong>{user.email}</strong>.</>
+              )}
             </span>
-            {verifyState !== 'sent' && (
+            {verifyState === 'idle' && mailConfigured !== false && (
               <button onClick={resendVerify}
                 className="font-semibold underline" style={{ color: '#92400e' }}>
                 Resend

@@ -67,7 +67,10 @@ export const authApi = {
     http.get<{ success: boolean }>(`/auth/verify-email?token=${encodeURIComponent(token)}`).then((r) => r.data),
 
   resendVerifyEmail: () =>
-    http.post<{ success: boolean; already?: boolean }>('/auth/verify-email/resend').then((r) => r.data),
+    http.post<{ success: boolean; already?: boolean; mail_configured?: boolean; delivered?: boolean }>('/auth/verify-email/resend').then((r) => r.data),
+
+  systemStatus: () =>
+    http.get<{ mail_configured: boolean }>('/system/status').then((r) => r.data),
 
   // Magic-link login: request the email, then consume the token client-side.
   magicRequest: (email: string) =>

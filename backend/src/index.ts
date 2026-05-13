@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail, magicLinkEmail } from './mailer';
+import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail, magicLinkEmail, isMailConfigured } from './mailer';
 import { makeWelcomeCanvas } from './welcomeBoard';
 
 const app = express();
@@ -297,18 +297,24 @@ app.get('/api/auth/verify-email', (req, res) => {
 });
 
 // Resend the verification email for the currently-authenticated user.
-app.post('/api/auth/verify-email/resend', authenticate, (req: any, res) => {
+// Lightweight, unauthenticated status endpoint so the UI can tell users
+// upfront whether email delivery is actually configured on this server.
+app.get('/api/system/status', (_req, res) => {
+  res.json({ mail_configured: isMailConfigured() });
+});
+
+app.post('/api/auth/verify-email/resend', authenticate, async (req: any, res) => {
   const db = readDb();
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) { res.status(404).json({ error: 'User not found' }); return; }
-  if (user.email_verified) { res.json({ success: true, already: true }); return; }
+  if (user.email_verified) { res.json({ success: true, already: true, mail_configured: isMailConfigured() }); return; }
   const verifyToken = uuidv4().replace(/-/g, '');
   db.email_verifies!.push({ token: verifyToken, user_id: user.id, expires_at: Date.now() + 24*60*60*1000 });
   db.email_verifies = db.email_verifies!.filter(v => v.expires_at > Date.now());
   writeDb(db);
-  sendMail({ ...verifyEmail(user.name, `${APP_URL}/verify-email?token=${verifyToken}`), to: user.email })
-    .catch(err => console.warn('[peekboard] verify resend failed', err));
-  res.json({ success: true });
+  // Await the real send so we can tell the UI whether it actually went out.
+  const result = await sendMail({ ...verifyEmail(user.name, `${APP_URL}/verify-email?token=${verifyToken}`), to: user.email });
+  res.json({ success: true, mail_configured: isMailConfigured(), delivered: result.delivered });
 });
 
 app.post('/api/auth/login', async (req, res) => {
