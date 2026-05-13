@@ -1,8 +1,9 @@
-import { useState, FormEvent } from 'react';
+import { useRef, useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, KeyRound, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Check, KeyRound, User as UserIcon, Upload, Trash2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import AvatarImage from '@/components/AvatarImage';
 
 const AVATAR_COLORS = ['#6366f1','#7b68ee','#8b5cf6','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444','#14b8a6'];
 
@@ -88,6 +89,9 @@ export default function Settings() {
           </div>
 
           <form onSubmit={saveProfile} className="space-y-4">
+            {/* Profile photo upload */}
+            <AvatarRow />
+
             <div>
               <label className="panel-label">Display name</label>
               <input
@@ -186,6 +190,93 @@ export default function Settings() {
           </form>
         </section>
       </main>
+    </div>
+  );
+}
+
+// ── Profile photo upload row ─────────────────────────────────────────────────
+// Sits inside the Settings profile card. Posts the file via multipart to
+// /api/auth/avatar, then pushes the updated user back into the auth store
+// so other UI (board cards, comment pins, header) refreshes immediately.
+function AvatarRow() {
+  const { user, token, setAuth } = useAuthStore();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy,  setBusy]  = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!user || !token) return null;
+
+  const upload = async (file: File) => {
+    setBusy(true); setError(null);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const { user: updated } = await authApi.uploadAvatar(form);
+      setAuth(updated, token);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Upload failed');
+    } finally { setBusy(false); }
+  };
+
+  const removePhoto = async () => {
+    setBusy(true); setError(null);
+    try {
+      const { user: updated } = await authApi.updateMe({ avatar_url: null as any });
+      setAuth(updated, token);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not remove photo');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-4">
+      <AvatarImage
+        name={user.name}
+        color={user.avatar_color}
+        url={user.avatar_url}
+        size={56}
+      />
+      <div className="flex flex-col gap-1">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) upload(f);
+            if (fileRef.current) fileRef.current.value = '';
+          }}
+        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md disabled:opacity-50"
+            style={{ background: 'var(--accent)', color: '#fff' }}
+          >
+            <Upload size={11} /> {user.avatar_url ? 'Change photo' : 'Upload photo'}
+          </button>
+          {user.avatar_url && (
+            <button
+              type="button"
+              onClick={removePhoto}
+              disabled={busy}
+              className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md disabled:opacity-50"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              <Trash2 size={11} /> Remove
+            </button>
+          )}
+        </div>
+        {error && <span className="text-[11px]" style={{ color: 'var(--danger)' }}>{error}</span>}
+        <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+          PNG, JPEG, WebP or GIF. Max 5 MB.
+        </span>
+      </div>
     </div>
   );
 }

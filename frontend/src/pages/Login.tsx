@@ -9,6 +9,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
   const { setAuth } = useAuthStore();
   const navigate = useNavigate();
 
@@ -20,6 +21,20 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
+    } finally { setLoading(false); }
+  };
+
+  // Request a passwordless magic-link email. Backend always returns success
+  // so we always show the same confirmation regardless of whether the
+  // address is registered.
+  const sendMagicLink = async () => {
+    if (!email.trim()) { setError('Enter your email first.'); return; }
+    setLoading(true); setError('');
+    try {
+      await authApi.magicRequest(email.trim());
+      setMagicSent(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not send the link.');
     } finally { setLoading(false); }
   };
 
@@ -82,6 +97,25 @@ export default function Login() {
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
+
+          {/* Magic-link alternative — no password needed. */}
+          {magicSent ? (
+            <p className="text-xs text-center mt-1" style={{ color: '#34d399' }}>
+              Magic link sent. Check <strong>{email}</strong>.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={sendMagicLink}
+              disabled={loading}
+              className="w-full text-xs py-1.5 mt-1 rounded-lg transition-colors disabled:opacity-50"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              Or send me a sign-in link by email
+            </button>
+          )}
 
           {/* Google Sign-In — only renders when VITE_GOOGLE_CLIENT_ID is set. */}
           <GoogleDivider />

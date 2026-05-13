@@ -493,6 +493,10 @@ export default function Board() {
               boardsApi.updateKeepAlive(id, { canvas_data: JSON.stringify(data) });
             }}
             uploadFn={(file) => uploadApi.upload(file)}
+            onThumbnail={async (dataUrl) => {
+              try { await boardsApi.thumbnail(board.id, dataUrl); }
+              catch { /* best-effort; thumbnails are a non-critical preview */ }
+            }}
           />
           <div
             className="absolute bottom-3 left-3 text-xs px-2 py-1 rounded pointer-events-none select-none"

@@ -157,6 +157,29 @@ Open the thread: ${boardUrl}
   };
 }
 
+export function magicLinkEmail(name: string, magicUrl: string): MailMessage {
+  return {
+    to:      '',
+    subject: 'Your Peekboard sign-in link',
+    text:
+`Hi ${name.split(' ')[0]},
+
+Use the link below to sign in to Peekboard. It expires in 15 minutes and can be used once.
+
+${magicUrl}
+
+If you didn't request this, you can ignore the email — your account stays safe.
+
+— Peekboard`,
+    html: shell('Sign-in link', `
+      <h1>Sign in to Peekboard</h1>
+      <p>Hi ${escapeHtml(name.split(' ')[0])}, click below to sign in. The link is good for 15 minutes and can be used once.</p>
+      <p><a class="btn" href="${magicUrl}">Sign in</a></p>
+      <p>If you didn't request this, you can ignore the email — your account stays safe.</p>
+    `),
+  };
+}
+
 export function resetEmail(name: string, resetUrl: string): MailMessage {
   return {
     to:      '',

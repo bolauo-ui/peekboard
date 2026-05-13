@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail } from './mailer';
+import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail, magicLinkEmail } from './mailer';
 import { makeWelcomeCanvas } from './welcomeBoard';
 
 const app = express();
@@ -56,6 +56,12 @@ interface User {
   // Set true once the user clicks the link emailed on signup. Optional for
   // backwards-compat with rows created before this column existed.
   email_verified?: boolean;
+  // URL of the user-uploaded profile photo (Avatar falls back to the
+  // letter-on-color circle when missing).
+  avatar_url?: string;
+  // Captured by the "How will you use Peekboard?" first-run prompt so we
+  // can personalise the dashboard / template list later.
+  use_case?:    'work' | 'personal' | 'design-review' | 'moodboard' | 'other';
 }
 interface Board {
   id: string; name: string; owner_id: string; canvas_data: string;
@@ -64,6 +70,20 @@ interface Board {
   // without needing the canvas history. Optional for back-compat.
   last_edited_by?: string;   // user id
   last_edited_at?: string;   // ISO timestamp
+  // Filed into a project / folder. Null = top-level "All boards".
+  project_id?:    string | null;
+  // Persisted canvas snapshot used as the dashboard card preview.
+  thumbnail_url?: string;
+}
+interface Project {
+  id: string; owner_id: string; name: string;
+  color: string;          // accent for the sidebar swatch
+  created_at: string;
+}
+interface MagicLink {
+  token:      string;
+  user_id:    string;
+  expires_at: number;     // ms since epoch
 }
 interface BoardAccess {
   id: string; board_id: string; email: string; user_id: string | null;
@@ -97,6 +117,8 @@ interface DbSchema {
   password_resets?: PasswordReset[];
   email_verifies?:  EmailVerify[];
   stars?:           BoardStar[];
+  projects?:        Project[];
+  magic_links?:     MagicLink[];
 }
 
 const readDb = (): DbSchema => {
@@ -105,11 +127,14 @@ const readDb = (): DbSchema => {
     db.password_resets ??= [];
     db.email_verifies  ??= [];
     db.stars           ??= [];
+    db.projects        ??= [];
+    db.magic_links     ??= [];
     return db;
   } catch {
     return {
       users: [], boards: [], board_access: [], comments: [],
       password_resets: [], email_verifies: [], stars: [],
+      projects: [], magic_links: [],
     };
   }
 };
@@ -260,7 +285,7 @@ app.post('/api/auth/login', async (req, res) => {
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
     JWT_SECRET, { expiresIn: '365d' }
   );
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified, avatar_url: user.avatar_url, use_case: user.use_case } });
 });
 
 // ── Google Sign-In ─────────────────────────────────────────────────────────
@@ -318,7 +343,7 @@ app.post('/api/auth/google', async (req, res) => {
       { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
       JWT_SECRET, { expiresIn: '365d' }
     );
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified, avatar_url: user.avatar_url, use_case: user.use_case } });
   } catch (err: any) {
     console.error('Google auth failed:', err);
     res.status(500).json({ error: 'Google sign-in failed' });
@@ -335,12 +360,20 @@ app.get('/api/auth/me', authenticate, (req: any, res) => {
 
 // ── Update profile (display name + avatar colour) ──────────────────────────
 app.put('/api/auth/me', authenticate, (req: any, res) => {
-  const { name, avatar_color } = req.body as { name?: string; avatar_color?: string };
+  const { name, avatar_color, avatar_url, use_case } = req.body as {
+    name?: string; avatar_color?: string; avatar_url?: string | null; use_case?: string;
+  };
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) { res.status(404).json({ error: 'User not found' }); return; }
   if (typeof name === 'string'         && name.trim())         user.name         = name.trim();
   if (typeof avatar_color === 'string' && /^#[0-9a-f]{6}$/i.test(avatar_color)) user.avatar_color = avatar_color;
+  // `null` clears the photo back to the letter-on-color circle.
+  if (avatar_url === null) delete user.avatar_url;
+  else if (typeof avatar_url === 'string' && avatar_url.startsWith('/uploads/')) user.avatar_url = avatar_url;
+  if (typeof use_case === 'string' && ['work','personal','design-review','moodboard','other'].includes(use_case)) {
+    user.use_case = use_case as User['use_case'];
+  }
   writeDb(db);
   const { password_hash: _, ...safe } = user;
   res.json({ user: safe });
@@ -413,7 +446,56 @@ app.post('/api/auth/reset', async (req, res) => {
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
     JWT_SECRET, { expiresIn: '365d' }
   );
-  res.json({ token: newToken, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
+  res.json({ token: newToken, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified, avatar_url: user.avatar_url, use_case: user.use_case } });
+});
+
+// ── Magic-link login ──────────────────────────────────────────────────────────
+// Request a one-time sign-in link. Always returns success so the endpoint
+// doesn't leak which addresses are registered.
+app.post('/api/auth/magic', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: 'Email required' }); return; }
+  const db = readDb();
+  const user = db.users.find(u => u.email === email.toLowerCase().trim());
+  if (!user) { res.json({ success: true }); return; }
+
+  const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, ''); // 64 chars
+  const expires_at = Date.now() + 15 * 60 * 1000;   // 15 minutes
+  db.magic_links!.push({ token, user_id: user.id, expires_at });
+  // GC anything past its TTL.
+  db.magic_links = db.magic_links!.filter(m => m.expires_at > Date.now());
+  writeDb(db);
+
+  const url = `${APP_URL}/magic-link?token=${token}`;
+  await sendMail({ ...magicLinkEmail(user.name, url), to: user.email });
+  res.json({ success: true });
+});
+
+// Consume a magic-link token. POST so it can't be triggered by a preload.
+app.post('/api/auth/magic/verify', (req, res) => {
+  const { token } = req.body as { token?: string };
+  if (!token) { res.status(400).json({ error: 'Missing token' }); return; }
+  const db = readDb();
+  const entry = db.magic_links!.find(m => m.token === token);
+  if (!entry || entry.expires_at < Date.now()) {
+    res.status(400).json({ error: 'This sign-in link is invalid or expired.' });
+    return;
+  }
+  const user = db.users.find(u => u.id === entry.user_id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+  // Burn the token so it can't be reused.
+  db.magic_links = db.magic_links!.filter(m => m.token !== token);
+  writeDb(db);
+
+  const jwtToken = jwt.sign(
+    { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
+    JWT_SECRET, { expiresIn: '365d' }
+  );
+  res.json({
+    token: jwtToken,
+    user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified, avatar_url: user.avatar_url, use_case: user.use_case },
+  });
 });
 
 // ── Boards ────────────────────────────────────────────────────────────────────
@@ -434,6 +516,8 @@ app.get('/api/boards', authenticate, (req: any, res) => {
     starred:            myStars.has(b.id),
     last_edited_by_name: userInfo(b.last_edited_by ?? b.owner_id)?.name ?? '',
     last_edited_by_color: userInfo(b.last_edited_by ?? b.owner_id)?.avatar_color ?? '#888',
+    project_id:          b.project_id ?? null,
+    thumbnail_url:       b.thumbnail_url ?? null,
   });
 
   const owned = db.boards
@@ -754,6 +838,131 @@ app.post('/api/upload', authenticate, upload.single('file'), (req: any, res) => 
     size: req.file.size,
   });
 });
+
+// ── Avatar upload ─────────────────────────────────────────────────────────────
+// Re-uses the same multer pipeline as media uploads. Saves the file path to
+// the user record so /me etc. return it. We don't enforce dimensions; the
+// client can pre-crop if it wants to.
+const avatarUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/png','image/jpeg','image/webp','image/gif'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Avatar must be PNG, JPEG, WebP or GIF.'));
+  },
+});
+app.post('/api/auth/avatar', authenticate, avatarUpload.single('file'), (req: any, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No avatar file uploaded' }); return; }
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  user.avatar_url = `/uploads/${req.file.filename}`;
+  writeDb(db);
+  const { password_hash: _, ...safe } = user;
+  res.json({ user: safe });
+});
+
+// ── Board thumbnail (base64 PNG from canvas.toDataURL) ────────────────────────
+// We accept base64 in JSON rather than multipart to make the client-side
+// flush trivial (just an extra fetch after save). The payload is capped at
+// roughly 2 MB compressed JPEG which is plenty for a 320-px-wide preview.
+app.post('/api/boards/:id/thumbnail',
+  authenticate,
+  requireBoardRole(['owner','editor']),
+  (req: any, res) => {
+    const { image } = req.body as { image?: string };
+    if (!image || !image.startsWith('data:image/')) {
+      res.status(400).json({ error: 'Image data URL required' });
+      return;
+    }
+    const m = image.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
+    if (!m) { res.status(400).json({ error: 'Unsupported image format' }); return; }
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 2 * 1024 * 1024) { res.status(413).json({ error: 'Thumbnail too large' }); return; }
+
+    const filename = `thumb-${req.params.id}.${m[1] === 'jpg' ? 'jpeg' : m[1]}`;
+    const filepath = path.join(UPLOADS_DIR, filename);
+    fs.writeFileSync(filepath, buf);
+
+    const db = readDb();
+    const board = db.boards.find(b => b.id === req.params.id);
+    if (board) {
+      // Append a cache-busting `?v=<ms>` so freshly uploaded thumbnails
+      // override any cached version in the dashboard.
+      board.thumbnail_url = `/uploads/${filename}?v=${Date.now()}`;
+      writeDb(db);
+    }
+    res.json({ success: true, thumbnail_url: board?.thumbnail_url });
+  }
+);
+
+// ── Projects (folders) ────────────────────────────────────────────────────────
+app.get('/api/projects', authenticate, (req: any, res) => {
+  const db = readDb();
+  const projects = (db.projects ?? [])
+    .filter(p => p.owner_id === req.user.id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  res.json({ projects });
+});
+
+app.post('/api/projects', authenticate, (req: any, res) => {
+  const { name, color = '#7b68ee' } = req.body as { name?: string; color?: string };
+  if (!name?.trim()) { res.status(400).json({ error: 'Project name required' }); return; }
+  const db = readDb();
+  const project: Project = {
+    id: uuidv4(), owner_id: req.user.id,
+    name: name.trim(), color,
+    created_at: new Date().toISOString(),
+  };
+  db.projects!.push(project);
+  writeDb(db);
+  res.status(201).json({ project });
+});
+
+app.patch('/api/projects/:id', authenticate, (req: any, res) => {
+  const db = readDb();
+  const project = db.projects!.find(p => p.id === req.params.id && p.owner_id === req.user.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  const { name, color } = req.body as { name?: string; color?: string };
+  if (typeof name === 'string' && name.trim()) project.name = name.trim();
+  if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) project.color = color;
+  writeDb(db);
+  res.json({ project });
+});
+
+app.delete('/api/projects/:id', authenticate, (req: any, res) => {
+  const db = readDb();
+  const idx = db.projects!.findIndex(p => p.id === req.params.id && p.owner_id === req.user.id);
+  if (idx === -1) { res.status(404).json({ error: 'Project not found' }); return; }
+  db.projects!.splice(idx, 1);
+  // Boards filed into this project drop back to top-level rather than being deleted.
+  db.boards = db.boards.map(b => b.project_id === req.params.id ? { ...b, project_id: null } : b);
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// Move a board into / out of a project (null = top-level).
+app.post('/api/boards/:id/move',
+  authenticate,
+  requireBoardRole(['owner','editor']),
+  (req: any, res) => {
+    const { project_id } = req.body as { project_id?: string | null };
+    const db = readDb();
+    const board = db.boards.find(b => b.id === req.params.id);
+    if (!board) { res.status(404).json({ error: 'Board not found' }); return; }
+    if (project_id) {
+      const proj = db.projects!.find(p => p.id === project_id && p.owner_id === req.user.id);
+      if (!proj) { res.status(404).json({ error: 'Project not found' }); return; }
+      board.project_id = project_id;
+    } else {
+      board.project_id = null;
+    }
+    board.updated_at = new Date().toISOString();
+    writeDb(db);
+    res.json({ success: true, board });
+  }
+);
 
 app.use((err: Error, _req: any, res: any, _next: any) => {
   console.error(err);

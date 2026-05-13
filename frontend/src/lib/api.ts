@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Board, BoardMember, Comment, User } from '@/types';
+import type { Board, BoardMember, Comment, Project, User } from '@/types';
 
 const http = axios.create({ baseURL: '/api' });
 
@@ -34,7 +34,7 @@ export const authApi = {
 
   me: () => http.get<{ user: User }>('/auth/me').then((r) => r.data),
 
-  updateMe: (data: { name?: string; avatar_color?: string }) =>
+  updateMe: (data: { name?: string; avatar_color?: string; avatar_url?: string | null; use_case?: string }) =>
     http.put<{ user: User }>('/auth/me', data).then((r) => r.data),
 
   changePassword: (data: { current?: string; next: string }) =>
@@ -51,6 +51,18 @@ export const authApi = {
 
   resendVerifyEmail: () =>
     http.post<{ success: boolean; already?: boolean }>('/auth/verify-email/resend').then((r) => r.data),
+
+  // Magic-link login: request the email, then consume the token client-side.
+  magicRequest: (email: string) =>
+    http.post<{ success: boolean }>('/auth/magic', { email }).then((r) => r.data),
+  magicVerify:  (token: string) =>
+    http.post<{ token: string; user: User }>('/auth/magic/verify', { token }).then((r) => r.data),
+
+  // Avatar upload (multipart). FormData is set by the caller.
+  uploadAvatar: (form: FormData) =>
+    http.post<{ user: User }>('/auth/avatar', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data),
 };
 
 // ── Boards ────────────────────────────────────────────────────────────────────
@@ -92,6 +104,25 @@ export const boardsApi = {
 
   unstar: (id: string) =>
     http.delete<{ success: boolean; starred: boolean }>(`/boards/${id}/star`).then((r) => r.data),
+
+  // Move into a project (or null for top-level).
+  move: (id: string, project_id: string | null) =>
+    http.post<{ success: boolean }>(`/boards/${id}/move`, { project_id }).then((r) => r.data),
+
+  // Upload a canvas snapshot used as the dashboard preview.
+  thumbnail: (id: string, image: string) =>
+    http.post<{ success: boolean; thumbnail_url: string }>(`/boards/${id}/thumbnail`, { image }).then((r) => r.data),
+};
+
+// ── Projects (folders) ────────────────────────────────────────────────────────
+export const projectsApi = {
+  list:   () => http.get<{ projects: Project[] }>('/projects').then((r) => r.data),
+  create: (data: { name: string; color?: string }) =>
+    http.post<{ project: Project }>('/projects', data).then((r) => r.data),
+  rename: (id: string, data: { name?: string; color?: string }) =>
+    http.patch<{ project: Project }>(`/projects/${id}`, data).then((r) => r.data),
+  delete: (id: string) =>
+    http.delete<{ success: boolean }>(`/projects/${id}`).then((r) => r.data),
 };
 
 // ── Sharing ───────────────────────────────────────────────────────────────────

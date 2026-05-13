@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon, Sparkles, Search, Star, Command, AlertCircle } from 'lucide-react';
-import { authApi, boardsApi } from '@/lib/api';
+import {
+  Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon,
+  Sparkles, Search, Star, Command, AlertCircle, Folder, FolderPlus, FolderOpen,
+  Home, MoveRight,
+} from 'lucide-react';
+import { authApi, boardsApi, projectsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
-import type { Board } from '@/types';
+import type { Board, Project } from '@/types';
 import CommandPalette from '@/components/CommandPalette';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
+import UseCaseModal from '@/components/UseCaseModal';
+import AvatarImage from '@/components/AvatarImage';
 
 function timeAgo(d: string) {
   const diff = Date.now() - new Date(d).getTime();
@@ -13,16 +19,6 @@ function timeAgo(d: string) {
   if (m < 1) return 'just now'; if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
   return `${Math.floor(h/24)}d ago`;
-}
-
-function Avatar({ name, color, size = 'sm' }: { name: string; color: string; size?: 'sm'|'md' }) {
-  const sz = size === 'sm' ? 'w-7 h-7 text-xs' : 'w-8 h-8 text-sm';
-  return (
-    <div className={`${sz} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}
-      style={{ backgroundColor: color }}>
-      {name.charAt(0).toUpperCase()}
-    </div>
-  );
 }
 
 const ROLE_PILL: Record<string, { bg: string; text: string }> = {
@@ -33,9 +29,10 @@ const ROLE_PILL: Record<string, { bg: string; text: string }> = {
 };
 
 export default function Dashboard() {
-  const { user, clearAuth } = useAuthStore();
+  const { user, clearAuth, token, setAuth } = useAuthStore();
   const navigate = useNavigate();
   const [boards,       setBoards]       = useState<Board[]>([]);
+  const [projects,     setProjects]     = useState<Project[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [creating,     setCreating]     = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
@@ -46,8 +43,29 @@ export default function Dashboard() {
   const [shortcutsOpen,setShortcutsOpen]= useState(false);
   const [verifyState,  setVerifyState]  = useState<'idle'|'sent'>('idle');
 
+  // null = "All boards", else a specific project id.
+  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [newProjectMode, setNewProjectMode] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
+  // Show the use-case modal exactly once per browser, only if it isn't
+  // already saved. Dismissals are remembered in localStorage so we don't
+  // re-prompt forever — they can revisit via Settings.
+  const [showUseCase, setShowUseCase] = useState(false);
   useEffect(() => {
-    boardsApi.list().then(({ boards }) => setBoards(boards)).finally(() => setLoading(false));
+    if (!user) return;
+    if (user.use_case) return;
+    if (localStorage.getItem('mb_use_case_dismissed') === '1') return;
+    setShowUseCase(true);
+  }, [user]);
+
+  useEffect(() => {
+    Promise.all([
+      boardsApi.list(),
+      projectsApi.list(),
+    ])
+    .then(([b, p]) => { setBoards(b.boards); setProjects(p.projects); })
+    .finally(() => setLoading(false));
   }, []);
 
   // Dashboard-level keyboard shortcuts: ⌘K opens the command palette, ?
@@ -79,6 +97,52 @@ export default function Dashboard() {
   const resendVerify = async () => {
     try { await authApi.resendVerifyEmail(); setVerifyState('sent'); }
     catch { /* swallow */ }
+  };
+
+  // ── Use-case capture ─────────────────────────────────────────────────────
+  type UseCase = NonNullable<NonNullable<typeof user>['use_case']>;
+  const saveUseCase = async (key: UseCase) => {
+    if (!user || !token) return;
+    try {
+      const { user: updated } = await authApi.updateMe({ use_case: key });
+      setAuth(updated, token);
+    } catch { /* fall through */ }
+    setShowUseCase(false);
+  };
+  const skipUseCase = () => {
+    localStorage.setItem('mb_use_case_dismissed', '1');
+    setShowUseCase(false);
+  };
+
+  // ── Projects (folders) ───────────────────────────────────────────────────
+  const createProject = async () => {
+    const name = newProjectName.trim();
+    if (!name) return;
+    const { project } = await projectsApi.create({ name });
+    setProjects(p => [...p, project]);
+    setNewProjectName('');
+    setNewProjectMode(false);
+    setActiveProject(project.id);
+  };
+
+  const renameProject = async (id: string, name: string) => {
+    const t = name.trim(); if (!t) return;
+    const { project } = await projectsApi.rename(id, { name: t });
+    setProjects(p => p.map(x => x.id === id ? project : x));
+  };
+
+  const deleteProject = async (id: string) => {
+    if (!confirm('Delete this project? Boards inside move to "All boards".')) return;
+    await projectsApi.delete(id);
+    setProjects(p => p.filter(x => x.id !== id));
+    setBoards(p => p.map(b => b.project_id === id ? { ...b, project_id: null } : b));
+    if (activeProject === id) setActiveProject(null);
+  };
+
+  const moveBoardToProject = async (boardId: string, project_id: string | null) => {
+    await boardsApi.move(boardId, project_id);
+    setBoards(p => p.map(b => b.id === boardId ? { ...b, project_id } : b));
+    setActiveMenu(null);
   };
 
   const createBoard = async (e: React.FormEvent) => {
@@ -123,14 +187,16 @@ export default function Dashboard() {
     }
   };
 
-  // Apply the dashboard search filter, then split into owned vs. shared and
-  // bubble starred boards to the top of each list (Figma-style).
+  // Apply the dashboard search + project filter, then split into owned vs.
+  // shared and bubble starred boards to the top of each list (Figma-style).
   const visibleBoards = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q
-      ? boards.filter(b => b.name.toLowerCase().includes(q) || (b.owner_name ?? '').toLowerCase().includes(q))
-      : boards;
-  }, [boards, search]);
+    return boards.filter(b => {
+      if (activeProject !== null && b.project_id !== activeProject) return false;
+      if (!q) return true;
+      return b.name.toLowerCase().includes(q) || (b.owner_name ?? '').toLowerCase().includes(q);
+    });
+  }, [boards, search, activeProject]);
 
   const starSort = (a: Board, b: Board) =>
     Number(!!b.starred) - Number(!!a.starred) ||
@@ -155,7 +221,7 @@ export default function Dashboard() {
           <span className="text-base font-bold text-gray-900">Peekboard</span>
         </div>
         <div className="flex items-center gap-3">
-          <Avatar name={user?.name || '?'} color={user?.avatar_color || '#7b68ee'} />
+          <AvatarImage name={user?.name || '?'} color={user?.avatar_color || '#7b68ee'} url={user?.avatar_url} size={28} />
           <span className="text-sm font-medium text-gray-700 hidden sm:block">{user?.name}</span>
           <button onClick={() => navigate('/settings')}
             title="Account settings"
@@ -169,7 +235,70 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
+      <div className="flex flex-1 min-h-0">
+        {/* Projects sidebar (folders à la Figma) */}
+        <aside className="w-56 flex-shrink-0 bg-white border-r border-gray-200 py-4 px-3 hidden md:flex flex-col gap-1">
+          <SidebarLink
+            active={activeProject === null}
+            onClick={() => setActiveProject(null)}
+            icon={<Home size={13} />}
+            label="All boards"
+          />
+          <SidebarLink
+            active={false}
+            onClick={() => navigate('/settings')}
+            icon={<SettingsIcon size={13} />}
+            label="Settings"
+          />
+
+          <div className="mt-4 flex items-center justify-between px-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Projects
+            </span>
+            <button
+              onClick={() => setNewProjectMode(true)}
+              title="New project"
+              className="rounded p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+            >
+              <FolderPlus size={12} />
+            </button>
+          </div>
+
+          <ul className="flex flex-col gap-0.5 mt-1">
+            {projects.map(p => (
+              <li key={p.id}>
+                <SidebarLink
+                  active={activeProject === p.id}
+                  onClick={() => setActiveProject(p.id)}
+                  icon={
+                    <span className="block rounded-sm" style={{ width: 9, height: 9, background: p.color }} />
+                  }
+                  label={p.name}
+                  onDelete={() => deleteProject(p.id)}
+                  onRename={(name) => renameProject(p.id, name)}
+                />
+              </li>
+            ))}
+            {newProjectMode && (
+              <li>
+                <input
+                  autoFocus
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter')  createProject();
+                    if (e.key === 'Escape') { setNewProjectMode(false); setNewProjectName(''); }
+                  }}
+                  onBlur={() => { if (newProjectName.trim()) createProject(); else setNewProjectMode(false); }}
+                  placeholder="Project name"
+                  className="w-full text-xs px-2 py-1 rounded bg-gray-50 border border-gray-300 outline-none"
+                />
+              </li>
+            )}
+          </ul>
+        </aside>
+
+      <main className="flex-1 min-w-0 max-w-6xl mx-auto w-full px-6 py-8">
         {/* Email-verification banner — auto-hides once verified or dismissed. */}
         {user && user.email_verified === false && (
           <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
@@ -230,6 +359,12 @@ export default function Dashboard() {
             <div className="text-center py-16">
               <p className="text-sm text-gray-500">No boards match "{search}".</p>
             </div>
+          ) : activeProject !== null ? (
+            <div className="text-center py-16">
+              <FolderOpen size={28} className="mx-auto mb-2 text-gray-300" />
+              <p className="text-sm text-gray-500">This project is empty.</p>
+              <p className="text-xs text-gray-400 mt-1">Move a board into it using the ⋮ menu.</p>
+            </div>
           ) : (
             <WelcomePanel
               firstName={(user?.name ?? 'there').split(' ')[0]}
@@ -243,6 +378,8 @@ export default function Dashboard() {
                 onOpen={id => navigate(`/board/${id}`)}
                 onDelete={deleteBoard} onDuplicate={duplicateBoard}
                 onToggleStar={toggleStar}
+                onMoveToProject={moveBoardToProject}
+                projects={projects}
                 activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
             )}
             {ownedBoards.length > 0 && (
@@ -250,6 +387,8 @@ export default function Dashboard() {
                 onOpen={id => navigate(`/board/${id}`)}
                 onDelete={deleteBoard} onDuplicate={duplicateBoard}
                 onToggleStar={toggleStar}
+                onMoveToProject={moveBoardToProject}
+                projects={projects}
                 activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
             )}
             {sharedBoards.length > 0 && (
@@ -257,11 +396,18 @@ export default function Dashboard() {
                 onOpen={id => navigate(`/board/${id}`)}
                 onDelete={deleteBoard} onDuplicate={duplicateBoard}
                 onToggleStar={toggleStar}
+                onMoveToProject={moveBoardToProject}
+                projects={projects}
                 activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete={false} />
             )}
           </>
         )}
       </main>
+      </div>
+
+      {showUseCase && user && (
+        <UseCaseModal user={user} onSave={saveUseCase} onSkip={skipUseCase} />
+      )}
 
       {paletteOpen && (
         <CommandPalette
@@ -301,6 +447,69 @@ export default function Dashboard() {
             </form>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Projects sidebar link ────────────────────────────────────────────────────
+// Single row in the dashboard's left rail. Double-click to inline-rename
+// (projects only; built-in entries pass `onRename={undefined}` so the
+// handler simply no-ops). Trash icon appears on hover for deletable rows.
+interface SidebarLinkProps {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  onRename?: (next: string) => void;
+  onDelete?: () => void;
+}
+function SidebarLink({ active, onClick, icon, label, onRename, onDelete }: SidebarLinkProps) {
+  const [editing, setEditing] = useState(false);
+  const [value,   setValue]   = useState(label);
+  return (
+    <div
+      onClick={onClick}
+      onDoubleClick={(e) => {
+        if (!onRename) return;
+        e.stopPropagation();
+        setValue(label);
+        setEditing(true);
+      }}
+      className="group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer text-[13px]"
+      style={{
+        background: active ? 'rgba(123,104,238,0.12)' : 'transparent',
+        color:      active ? 'var(--accent)' : '#4b5563',
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = '#f3f4f6'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      <span className="flex-shrink-0">{icon}</span>
+      {editing ? (
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={() => { if (value.trim() && value !== label && onRename) onRename(value.trim()); setEditing(false); }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter')  { if (value.trim() && onRename) onRename(value.trim()); setEditing(false); }
+            if (e.key === 'Escape') { setEditing(false); }
+          }}
+          className="flex-1 text-[13px] bg-white border border-gray-300 rounded px-1 py-0 outline-none"
+        />
+      ) : (
+        <span className="flex-1 truncate">{label}</span>
+      )}
+      {onDelete && !editing && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="rounded opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500"
+          title="Delete project"
+        >
+          <Trash2 size={11} />
+        </button>
       )}
     </div>
   );
@@ -361,10 +570,12 @@ interface BoardGridProps {
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void;
   onToggleStar: (b: Board, e: React.MouseEvent) => void;
+  onMoveToProject: (boardId: string, project_id: string | null) => void;
+  projects: Project[];
   activeMenu: string|null; onMenuToggle: (id: string|null) => void; showDelete: boolean;
 }
 
-function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
+function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar, onMoveToProject, projects, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
   return (
     <section className="mb-10">
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
@@ -372,14 +583,23 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar,
         {boards.map(board => (
           <div key={board.id} onClick={() => onOpen(board.id)}
             className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group overflow-hidden">
-            {/* Thumbnail */}
-            <div className="h-28 flex items-center justify-center relative" style={{ background: '#f5f5f5' }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(123,104,238,0.08)' }}>
-                <svg className="w-5 h-5" style={{ color: 'var(--accent)', opacity: 0.5 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
+            {/* Thumbnail — real canvas snapshot if available, else generic icon */}
+            <div className="h-28 flex items-center justify-center relative overflow-hidden" style={{ background: '#f5f5f5' }}>
+              {board.thumbnail_url ? (
+                <img
+                  src={board.thumbnail_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(123,104,238,0.08)' }}>
+                  <svg className="w-5 h-5" style={{ color: 'var(--accent)', opacity: 0.5 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              )}
               {/* Star button — always visible if starred, on hover otherwise */}
               <button
                 onClick={(e) => onToggleStar(board, e)}
@@ -429,11 +649,37 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar,
                     <MoreVertical size={13} />
                   </button>
                   {activeMenu === board.id && (
-                    <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-36">
+                    <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-44">
                       <button onClick={e => onDuplicate(board.id, e)}
                         className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
                         <Copy size={12} /> Duplicate
                       </button>
+
+                      {/* Move to project */}
+                      {showDelete && (
+                        <div className="border-t border-gray-100 mt-1 pt-1">
+                          <div className="px-3 pt-1 pb-0.5 text-[9px] uppercase tracking-wider text-gray-400">Move to</div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onMoveToProject(board.id, null); }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100"
+                          >
+                            <Home size={12} /> All boards
+                          </button>
+                          {projects.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={(e) => { e.stopPropagation(); onMoveToProject(board.id, p.id); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100"
+                            >
+                              <span className="rounded-sm flex-shrink-0" style={{ width: 9, height: 9, background: p.color }} />
+                              <span className="truncate">{p.name}</span>
+                              {board.project_id === p.id && <MoveRight size={10} className="ml-auto text-gray-400" />}
+                            </button>
+                          ))}
+                          <div className="border-t border-gray-100 my-1" />
+                        </div>
+                      )}
+
                       {showDelete && (
                         <button onClick={e => onDelete(board.id, e)}
                           className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">

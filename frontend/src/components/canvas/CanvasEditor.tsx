@@ -38,6 +38,10 @@ interface Props {
   onZoomChange?:       (zoom: number) => void;
   onCanvasChangeKeepAlive?: (data: CanvasData) => void;  // for pagehide
   uploadFn?:           (file: File) => Promise<{ url: string; mimetype: string }>;
+  // Receives a JPEG data-URL snapshot of the canvas, throttled to once
+  // every ~30 s while the user is editing. Parent uploads it via
+  // boardsApi.thumbnail so it shows on the dashboard.
+  onThumbnail?:        (dataUrl: string) => void;
 }
 
 const DEFAULT_BG = '#f0f0f0';
@@ -45,7 +49,7 @@ const DEFAULT_BG = '#f0f0f0';
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
   ({ board, activeTool, role, onObjectSelect, onCanvasChange, onCanvasReady,
      onBackgroundChange, onToolChange, onLayersChange, onZoomChange,
-     onCanvasChangeKeepAlive, uploadFn }, ref) => {
+     onCanvasChangeKeepAlive, uploadFn, onThumbnail }, ref) => {
 
     const canvasElRef   = useRef<HTMLCanvasElement>(null);
     const wrapperRef    = useRef<HTMLDivElement>(null);
@@ -128,14 +132,35 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       };
     }, []);
 
+    // Last time we emitted a thumbnail snapshot — used to throttle to
+    // ~once every 30 s so we don't spam the upload endpoint mid-drag.
+    const lastThumbAt = useRef<number>(0);
+
     const scheduleChange = useCallback(() => {
       if (changeTimer.current) clearTimeout(changeTimer.current);
       changeTimer.current = setTimeout(() => {
         const payload = buildPayload();
         if (!payload) return;
         onCanvasChange(payload);
+
+        // Thumbnail snapshot — small JPEG of the canvas, throttled. Wrapped
+        // in try/catch because toDataURL throws if any object on the canvas
+        // was loaded from a tainted cross-origin source.
+        const now = Date.now();
+        if (onThumbnail && now - lastThumbAt.current > 30_000) {
+          const c = fabricRef.current;
+          if (c) {
+            try {
+              const dataUrl = c.toDataURL({ format: 'jpeg', quality: 0.6, multiplier: 0.25 });
+              if (dataUrl && dataUrl.length < 2_000_000) {
+                lastThumbAt.current = now;
+                onThumbnail(dataUrl);
+              }
+            } catch { /* tainted canvas — skip silently */ }
+          }
+        }
       }, 800);
-    }, [onCanvasChange]);
+    }, [onCanvasChange, onThumbnail]);
 
     useEffect(() => { scheduleRef.current = scheduleChange; }, [scheduleChange]);
 

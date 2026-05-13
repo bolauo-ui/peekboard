@@ -4,6 +4,16 @@ export interface User {
   name: string;
   avatar_color: string;
   email_verified?: boolean;
+  avatar_url?:    string;
+  use_case?:      'work' | 'personal' | 'design-review' | 'moodboard' | 'other';
+}
+
+export interface Project {
+  id: string;
+  owner_id: string;
+  name: string;
+  color: string;
+  created_at: string;
 }
 
 export interface Board {
@@ -22,6 +32,8 @@ export interface Board {
   last_edited_at?: string;
   last_edited_by_name?:  string;
   last_edited_by_color?: string;
+  project_id?:     string | null;
+  thumbnail_url?:  string | null;
 }
 
 export interface BoardMember {
