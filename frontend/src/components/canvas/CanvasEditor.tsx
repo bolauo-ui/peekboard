@@ -3,6 +3,7 @@ import { fabric } from 'fabric';
 import type { Board, MediaItem, CanvasData, Tool } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { parseGIF, decompressFrames } from 'gifuct-js';
+import { applyAutoLayout, getAutoLayout, relayoutForChild } from '@/components/canvas/autoLayout';
 
 export interface CanvasEditorHandle {
   addMedia:      (url: string, mimeType: string, file?: File) => void;
@@ -16,6 +17,7 @@ export interface CanvasEditorHandle {
   copy:  () => void;
   paste: () => void;
   flushSave: () => void;     // immediate save (Cmd+S, manual)
+  applyAutoLayoutTo: (frame: fabric.Object) => void; // re-run after panel edits
   zoomIn:     () => void;
   zoomOut:    () => void;
   zoomTo:     (level: number) => void;       // e.g. 0.5, 1, 2
@@ -340,6 +342,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           internalClip.current = c;
           scheduleRef.current(); pushHistory();
         });
+      },
+      applyAutoLayoutTo: (frame) => {
+        const c = fabricRef.current; if (!c) return;
+        applyAutoLayout(c, frame);
+        c.requestRenderAll();
+        pushHistory();
+        scheduleRef.current();
       },
       flushSave: () => {
         // Cancel pending debounce and save current state immediately.
@@ -774,10 +783,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             const cp = (child as any).clipPath as any;
             if (cp) cp.set({ left: obj.left, top: obj.top, width: fw, height: fh });
           });
+          // If this frame is auto-laying-out, re-run on any change to it.
+          if (getAutoLayout(obj)) {
+            applyAutoLayout(canvas, obj);
+            canvas.requestRenderAll();
+          }
         } else if (canEditRef.current) {
           // Re-parenting: center-point hit-test
           const target = getDropTarget(obj);
           reparentObject(obj, target);
+          // If we landed inside (or were inside) an auto-layout frame, re-run.
+          relayoutForChild(canvas, obj);
+          canvas.requestRenderAll();
         }
 
         pushHistory();
@@ -785,14 +802,44 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         onLayersChangeRef.current?.();
       });
 
-      canvas.on('object:added',   () => { if (!isRestoring.current) { scheduleRef.current(); onLayersChangeRef.current?.(); } });
+      canvas.on('object:added', (e) => {
+        if (!isRestoring.current) {
+          // Re-layout the parent auto-layout frame if the added object is a child.
+          if (e.target) {
+            const re = relayoutForChild(canvas, e.target as fabric.Object);
+            if (re) canvas.requestRenderAll();
+          }
+          scheduleRef.current();
+          onLayersChangeRef.current?.();
+        }
+      });
       canvas.on('object:removed', (e) => {
-        if (!isRestoring.current) { scheduleRef.current(); onLayersChangeRef.current?.(); }
+        if (!isRestoring.current) {
+          // Re-layout parent auto-layout frame after removal.
+          if (e.target) {
+            const re = relayoutForChild(canvas, e.target as fabric.Object);
+            if (re) canvas.requestRenderAll();
+          }
+          scheduleRef.current();
+          onLayersChangeRef.current?.();
+        }
         // Stop GIF animation for removed object
         const id = (e.target as any)?.data?.id;
         if (id && gifStoppers.current.has(id)) {
           gifStoppers.current.get(id)!();
           gifStoppers.current.delete(id);
+        }
+      });
+
+      // Live re-layout during resize so the user sees the layout update in
+      // real time rather than only on mouse-up.
+      canvas.on('object:scaling', (e) => {
+        const obj = e.target as fabric.Object | undefined;
+        if (!obj) return;
+        if (getAutoLayout(obj as any)) {
+          applyAutoLayout(canvas, obj as any);
+        } else {
+          relayoutForChild(canvas, obj as any);
         }
       });
 

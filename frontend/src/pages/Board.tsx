@@ -185,6 +185,26 @@ export default function Board() {
         return;
       }
 
+      // ── Shift+A toggles auto-layout on the selected frame ───────────────
+      if (!meta && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject() as any;
+        const isFrame = obj?.data?.objectType === 'frame' || obj?.data?.type === 'frame';
+        if (c && isFrame) {
+          e.preventDefault();
+          // Lazy-load engine to avoid pulling it into the Board page bundle
+          // chunk when the user never touches a frame.
+          import('@/components/canvas/autoLayout').then(({ DEFAULT_AUTO_LAYOUT, setAutoLayout, applyAutoLayout, unlockChildren, getAutoLayout }) => {
+            const isOn = getAutoLayout(obj);
+            if (isOn) { setAutoLayout(obj, null); unlockChildren(c, obj); }
+            else      { setAutoLayout(obj, DEFAULT_AUTO_LAYOUT); applyAutoLayout(c, obj); }
+            c.fire('object:modified', { target: obj });
+            c.requestRenderAll();
+          });
+        }
+        return;
+      }
+
       // ── Z-order shortcuts (Figma parity) ─────────────────────────────────
       // [  → send backward · Shift+[ → send to back
       // ]  → bring forward · Shift+] → bring to front

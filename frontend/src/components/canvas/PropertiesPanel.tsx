@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fabric } from 'fabric';
-import { Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Trash2, ChevronUp, ChevronDown, LayoutGrid, ArrowRight, ArrowDown } from 'lucide-react';
 import FontPicker from '@/components/canvas/FontPicker';
+import {
+  applyAutoLayout, unlockChildren, getAutoLayout, setAutoLayout,
+  DEFAULT_AUTO_LAYOUT, type AutoLayout,
+} from '@/components/canvas/autoLayout';
 
 interface Props {
   selectedObject: fabric.Object | null;
@@ -17,7 +21,9 @@ const FONTS = ['Inter','Arial','Georgia','Times New Roman','Courier New','Verdan
 export default function PropertiesPanel({ selectedObject, canvas, role, onBackgroundChange, backgroundColor }: Props) {
   const canEdit = role === 'owner' || role === 'editor';
   const isText  = selectedObject instanceof fabric.IText || selectedObject instanceof fabric.Text;
-  const isFrame = (selectedObject as any)?.data?.objectType === 'frame';
+  const isFrame = (selectedObject as any)?.data?.objectType === 'frame'
+                || (selectedObject as any)?.data?.type === 'frame';
+  const isSvg   = (selectedObject as any)?.data?.objectType === 'svg';
 
   const [fontFamily, setFontFamily] = useState('Inter');
   const [fontSize,   setFontSize]   = useState(32);
@@ -34,6 +40,10 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
   const [frameName, setFrameName]     = useState('Frame 1');
   const [frameFill, setFrameFill]     = useState('#ffffff');
   const [cornerRadius, setCornerRadius] = useState(0);
+  // Auto-layout config mirror so the UI is controlled.
+  const [auto, setAuto] = useState<AutoLayout | null>(null);
+  // Tick to force re-read of SVG child fills/strokes after each edit.
+  const [svgTick, setSvgTick] = useState(0);
 
   useEffect(() => {
     if (!selectedObject) return;
@@ -56,13 +66,64 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
       setFrameName(o.data?.frameName ?? 'Frame');
       setFrameFill(o.fill && o.fill !== 'rgba(255,255,255,0)' ? o.fill : '#ffffff');
       setCornerRadius(o.rx ?? 0);
+      setAuto((o.data?.autoLayout as AutoLayout) ?? null);
+    } else {
+      setAuto(null);
     }
+    setSvgTick(t => t + 1);
   }, [selectedObject, isText, isFrame]);
 
   const apply = (props: Record<string, unknown>) => {
     if (!selectedObject || !canvas || !canEdit) return;
     selectedObject.set(props as any);
     canvas.renderAll();
+  };
+
+  // ── Auto-layout helpers (only used when a frame is selected) ──────────────
+  const writeAutoLayout = (next: AutoLayout | null) => {
+    if (!selectedObject || !canvas || !canEdit) return;
+    setAutoLayout(selectedObject, next);
+    if (!next) unlockChildren(canvas, selectedObject);
+    else       applyAutoLayout(canvas, selectedObject);
+    canvas.fire('object:modified', { target: selectedObject });
+    canvas.requestRenderAll();
+    setAuto(next);
+  };
+  const patchAutoLayout = (patch: Partial<AutoLayout>) => {
+    const next: AutoLayout = { ...(auto ?? DEFAULT_AUTO_LAYOUT), ...patch, enabled: true };
+    writeAutoLayout(next);
+  };
+
+  // ── SVG child path helpers ─────────────────────────────────────────────────
+  // Treat the selected SVG group as a flat list of child shapes. Editing
+  // fill / stroke mutates the child directly; the group caches the children
+  // so we mark the group dirty and re-render to flush the change.
+  const svgChildren: fabric.Object[] = useMemo(() => {
+    if (!isSvg || !selectedObject) return [];
+    const g = selectedObject as fabric.Group;
+    if (typeof (g as any).getObjects !== 'function') return [];
+    return (g.getObjects() ?? []) as fabric.Object[];
+  // svgTick forces a refresh when child colours change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSvg, selectedObject, svgTick]);
+
+  const setSvgChildFill = (idx: number, hex: string) => {
+    if (!canvas || !canEdit) return;
+    const c = svgChildren[idx]; if (!c) return;
+    c.set({ fill: hex });
+    (selectedObject as any).dirty = true;
+    canvas.requestRenderAll();
+    canvas.fire('object:modified', { target: selectedObject! });
+    setSvgTick(t => t + 1);
+  };
+  const setSvgChildStroke = (idx: number, hex: string) => {
+    if (!canvas || !canEdit) return;
+    const c = svgChildren[idx]; if (!c) return;
+    c.set({ stroke: hex });
+    (selectedObject as any).dirty = true;
+    canvas.requestRenderAll();
+    canvas.fire('object:modified', { target: selectedObject! });
+    setSvgTick(t => t + 1);
   };
 
   const deleteObj  = () => { if (!selectedObject || !canvas || !canEdit) return; canvas.remove(selectedObject); canvas.renderAll(); };
@@ -230,6 +291,142 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
                     style={{ height: 28 }}
                   />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Auto-layout (frames only) */}
+          {isFrame && (
+            <div className="panel-section">
+              <div className="flex items-center justify-between mb-1.5">
+                <SectionHeader>Auto Layout</SectionHeader>
+                <button
+                  onClick={() => writeAutoLayout(auto?.enabled ? null : DEFAULT_AUTO_LAYOUT)}
+                  disabled={!canEdit}
+                  className="text-xs px-1.5 py-0.5 rounded font-medium transition-colors"
+                  style={{
+                    background: auto?.enabled ? 'var(--accent-dim)' : 'var(--bg-section)',
+                    color:      auto?.enabled ? 'var(--accent)'    : 'var(--text-secondary)',
+                  }}
+                  title="Toggle auto layout (Shift+A)"
+                >
+                  <LayoutGrid size={11} className="inline mr-1" />
+                  {auto?.enabled ? 'On' : 'Off'}
+                </button>
+              </div>
+
+              {auto?.enabled && (
+                <>
+                  {/* Direction */}
+                  <div className="flex gap-1 mb-2">
+                    <StyleBtn active={auto.direction === 'vertical'} disabled={!canEdit}
+                      onClick={() => patchAutoLayout({ direction: 'vertical' })}>
+                      <ArrowDown size={12} />
+                    </StyleBtn>
+                    <StyleBtn active={auto.direction === 'horizontal'} disabled={!canEdit}
+                      onClick={() => patchAutoLayout({ direction: 'horizontal' })}>
+                      <ArrowRight size={12} />
+                    </StyleBtn>
+                  </div>
+
+                  {/* Gap + Padding */}
+                  <div className="grid grid-cols-2 gap-1.5 mb-2">
+                    <div>
+                      <span className="panel-label">Gap</span>
+                      <input
+                        type="number" min={0} max={400}
+                        value={auto.gap}
+                        onChange={e => patchAutoLayout({ gap: Math.max(0, parseInt(e.target.value) || 0) })}
+                        disabled={!canEdit}
+                        className="panel-input"
+                      />
+                    </div>
+                    <div>
+                      <span className="panel-label">Padding</span>
+                      <input
+                        type="number" min={0} max={400}
+                        value={auto.padding}
+                        onChange={e => patchAutoLayout({ padding: Math.max(0, parseInt(e.target.value) || 0) })}
+                        disabled={!canEdit}
+                        className="panel-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cross-axis alignment */}
+                  <div className="mb-2">
+                    <span className="panel-label">Align cross</span>
+                    <div className="flex gap-1">
+                      {(['start','center','end'] as const).map(a => (
+                        <StyleBtn key={a} active={auto.alignCross === a} disabled={!canEdit}
+                          onClick={() => patchAutoLayout({ alignCross: a })}>
+                          {a === 'start'  ? <AlignLeft  size={12} /> :
+                           a === 'center' ? <AlignCenter size={12} /> :
+                                            <AlignRight size={12} />}
+                        </StyleBtn>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Hug toggle */}
+                  <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={auto.hug}
+                      disabled={!canEdit}
+                      onChange={e => patchAutoLayout({ hug: e.target.checked })}
+                    />
+                    Hug contents (frame shrinks to fit)
+                  </label>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* SVG paths (recolour individual children) */}
+          {isSvg && svgChildren.length > 0 && (
+            <div className="panel-section">
+              <SectionHeader>SVG paths</SectionHeader>
+              <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                Click a swatch to recolour each path's fill or stroke.
+              </p>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                {svgChildren.map((c, i) => {
+                  const name = (c as any).id || (c as any).data?.name || `Path ${i + 1}`;
+                  const fillVal   = (c.fill   as string) || '#000000';
+                  const strokeVal = (c.stroke as string) || '#000000';
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 text-xs px-1.5 py-1 rounded"
+                      style={{ background: 'var(--bg-section)' }}
+                    >
+                      <span className="flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {name}
+                      </span>
+                      <label title="Fill" className="flex items-center gap-1">
+                        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>F</span>
+                        <input
+                          type="color" value={fillVal}
+                          onChange={(e) => setSvgChildFill(i, e.target.value)}
+                          disabled={!canEdit}
+                          className="color-swatch"
+                          style={{ width: 22, height: 18 }}
+                        />
+                      </label>
+                      <label title="Stroke" className="flex items-center gap-1">
+                        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>S</span>
+                        <input
+                          type="color" value={strokeVal}
+                          onChange={(e) => setSvgChildStroke(i, e.target.value)}
+                          disabled={!canEdit}
+                          className="color-swatch"
+                          style={{ width: 22, height: 18 }}
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
