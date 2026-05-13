@@ -6,6 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { sendMail, welcomeEmail, inviteEmail, resetEmail } from './mailer';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -65,13 +66,22 @@ interface Comment {
   x: number; y: number; content: string; parent_id: string | null;
   resolved: boolean; created_at: string;
 }
+interface PasswordReset {
+  token:      string;
+  user_id:    string;
+  expires_at: number;   // ms since epoch
+}
 interface DbSchema {
   users: User[]; boards: Board[]; board_access: BoardAccess[]; comments: Comment[];
+  password_resets?: PasswordReset[];
 }
 
 const readDb = (): DbSchema => {
-  try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
-  catch { return { users: [], boards: [], board_access: [], comments: [] }; }
+  try {
+    const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DbSchema;
+    db.password_resets ??= [];
+    return db;
+  } catch { return { users: [], boards: [], board_access: [], comments: [], password_resets: [] }; }
 };
 
 const writeDb = (data: DbSchema): void => {
@@ -140,6 +150,10 @@ app.post('/api/auth/register', async (req, res) => {
 
   db.users.push({ id, email: normalEmail, name, password_hash, avatar_color, created_at: now });
   writeDb(db);
+
+  // Fire-and-forget welcome email; failure does not block account creation.
+  sendMail({ ...welcomeEmail(name, APP_URL), to: normalEmail })
+    .catch(err => console.warn('[peekboard] welcome mail failed', err));
 
   const token = jwt.sign({ id, email: normalEmail, name, avatar_color }, JWT_SECRET, { expiresIn: '365d' });
   res.status(201).json({ token, user: { id, email: normalEmail, name, avatar_color } });
@@ -231,6 +245,89 @@ app.get('/api/auth/me', authenticate, (req: any, res) => {
   if (!user) { res.status(404).json({ error: 'User not found' }); return; }
   const { password_hash: _, ...safe } = user;
   res.json({ user: safe });
+});
+
+// ── Update profile (display name + avatar colour) ──────────────────────────
+app.put('/api/auth/me', authenticate, (req: any, res) => {
+  const { name, avatar_color } = req.body as { name?: string; avatar_color?: string };
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  if (typeof name === 'string'         && name.trim())         user.name         = name.trim();
+  if (typeof avatar_color === 'string' && /^#[0-9a-f]{6}$/i.test(avatar_color)) user.avatar_color = avatar_color;
+  writeDb(db);
+  const { password_hash: _, ...safe } = user;
+  res.json({ user: safe });
+});
+
+// ── Change password (must know current) ────────────────────────────────────
+app.post('/api/auth/password', authenticate, async (req: any, res) => {
+  const { current, next } = req.body as { current?: string; next?: string };
+  if (!next || next.length < 6) { res.status(400).json({ error: 'New password must be at least 6 characters' }); return; }
+
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+  // Google-only accounts have an empty password_hash — they set their first
+  // password without proving an old one. Everyone else must prove the
+  // current password before we'll change it.
+  if (user.password_hash) {
+    if (!current) { res.status(400).json({ error: 'Current password required' }); return; }
+    const ok = await bcrypt.compare(current, user.password_hash);
+    if (!ok) { res.status(401).json({ error: 'Current password is incorrect' }); return; }
+  }
+
+  user.password_hash = await bcrypt.hash(next, 12);
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// ── Forgot password — issue token + email link ─────────────────────────────
+app.post('/api/auth/forgot', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: 'Email required' }); return; }
+
+  const db = readDb();
+  const user = db.users.find((u) => u.email === email.toLowerCase().trim());
+  // Always return success to avoid leaking which emails are registered.
+  if (!user) { res.json({ success: true }); return; }
+
+  const token = uuidv4().replace(/-/g, '');
+  const expires_at = Date.now() + 60 * 60 * 1000;   // 1 hour
+  db.password_resets!.push({ token, user_id: user.id, expires_at });
+  // Garbage-collect expired tokens at the same time.
+  db.password_resets = db.password_resets!.filter(r => r.expires_at > Date.now());
+  writeDb(db);
+
+  const resetUrl = `${APP_URL}/reset-password?token=${token}`;
+  await sendMail({ ...resetEmail(user.name, resetUrl), to: user.email });
+  res.json({ success: true });
+});
+
+// ── Reset password (no auth — uses one-time token) ─────────────────────────
+app.post('/api/auth/reset', async (req, res) => {
+  const { token, password } = req.body as { token?: string; password?: string };
+  if (!token || !password || password.length < 6) {
+    res.status(400).json({ error: 'Token + new password (>=6 chars) required' }); return;
+  }
+  const db = readDb();
+  const reset = db.password_resets!.find(r => r.token === token);
+  if (!reset || reset.expires_at < Date.now()) {
+    res.status(400).json({ error: 'This reset link has expired. Request a new one.' }); return;
+  }
+  const user = db.users.find(u => u.id === reset.user_id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  user.password_hash = await bcrypt.hash(password, 12);
+  // Burn the token so it can't be reused.
+  db.password_resets = db.password_resets!.filter(r => r.token !== token);
+  writeDb(db);
+
+  const newToken = jwt.sign(
+    { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
+    JWT_SECRET, { expiresIn: '365d' }
+  );
+  res.json({ token: newToken, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
 });
 
 // ── Boards ────────────────────────────────────────────────────────────────────
@@ -376,6 +473,12 @@ app.post('/api/boards/:id/share', authenticate, (req: any, res) => {
   writeDb(db);
 
   const share_url = `${APP_URL}/invite/${invite_token}`;
+
+  // Fire-and-forget invite email. We still always return the share_url so
+  // the owner can copy it manually if mail isn't configured.
+  sendMail({ ...inviteEmail(board.name, req.user.name, role, share_url), to: normalEmail })
+    .catch(err => console.warn('[peekboard] invite mail failed', err));
+
   res.json({ success: true, invite_token, share_url, message: invitedUser ? 'User added to board' : 'Invite link created' });
 });
 

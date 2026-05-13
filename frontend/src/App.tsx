@@ -5,6 +5,9 @@ import Signup from '@/pages/Signup';
 import Dashboard from '@/pages/Dashboard';
 import Board from '@/pages/Board';
 import AcceptInvite from '@/pages/AcceptInvite';
+import Settings from '@/pages/Settings';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -38,6 +41,9 @@ export default function App() {
           element={<PrivateRoute><Board /></PrivateRoute>}
         />
         <Route path="/invite/:token" element={<AcceptInvite />} />
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+        <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
+        <Route path="/settings"        element={<PrivateRoute><Settings /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

@@ -33,6 +33,18 @@ export const authApi = {
     http.post<{ token: string; user: User }>('/auth/google', { credential }).then((r) => r.data),
 
   me: () => http.get<{ user: User }>('/auth/me').then((r) => r.data),
+
+  updateMe: (data: { name?: string; avatar_color?: string }) =>
+    http.put<{ user: User }>('/auth/me', data).then((r) => r.data),
+
+  changePassword: (data: { current?: string; next: string }) =>
+    http.post<{ success: boolean }>('/auth/password', data).then((r) => r.data),
+
+  forgot: (email: string) =>
+    http.post<{ success: boolean }>('/auth/forgot', { email }).then((r) => r.data),
+
+  reset: (data: { token: string; password: string }) =>
+    http.post<{ token: string; user: User }>('/auth/reset', data).then((r) => r.data),
 };
 
 // ── Boards ────────────────────────────────────────────────────────────────────

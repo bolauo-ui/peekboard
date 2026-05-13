@@ -69,6 +69,11 @@ export default function Login() {
           <Field label="Password">
             <input type="password" value={password} onChange={e => setPassword(e.target.value)}
               className="panel-input" placeholder="••••••••" required />
+            <div className="text-right mt-1">
+              <Link to="/forgot-password" className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                Forgot password?
+              </Link>
+            </div>
           </Field>
           <button type="submit" disabled={loading}
             className="w-full py-2.5 rounded-lg font-semibold text-sm text-white disabled:opacity-50 transition-colors mt-1"

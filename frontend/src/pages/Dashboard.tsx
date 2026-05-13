@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy } from 'lucide-react';
+import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import { boardsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { Board } from '@/types';
@@ -54,6 +54,16 @@ export default function Dashboard() {
     } finally { setCreating(false); }
   };
 
+  // Welcome-panel template creator — same path as normal create, just lets
+  // the user pick a sensible starting name in one click.
+  const createBoardFromTemplate = async (name: string) => {
+    setCreating(true);
+    try {
+      const { board } = await boardsApi.create({ name });
+      navigate(`/board/${board.id}`);
+    } finally { setCreating(false); }
+  };
+
   const deleteBoard = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Delete this board? This cannot be undone.')) return;
@@ -96,6 +106,11 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           <Avatar name={user?.name || '?'} color={user?.avatar_color || '#7b68ee'} />
           <span className="text-sm font-medium text-gray-700 hidden sm:block">{user?.name}</span>
+          <button onClick={() => navigate('/settings')}
+            title="Account settings"
+            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
+            <SettingsIcon size={14} /><span className="hidden sm:inline">Settings</span>
+          </button>
           <button onClick={() => { clearAuth(); navigate('/login'); }}
             className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
             <LogOut size={14} /><span className="hidden sm:inline">Sign out</span>
@@ -123,20 +138,10 @@ export default function Dashboard() {
             {[...Array(4)].map((_, i) => <div key={i} className="bg-white rounded-xl border border-gray-200 h-44 animate-pulse" />)}
           </div>
         ) : ownedBoards.length === 0 && sharedBoards.length === 0 ? (
-          <div className="text-center py-24">
-            <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-              </svg>
-            </div>
-            <h3 className="font-semibold text-gray-900 text-base mb-1">No boards yet</h3>
-            <p className="text-sm text-gray-400 mb-6">Create your first board to start reviewing motion assets.</p>
-            <button onClick={() => setShowModal(true)}
-              className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg text-white"
-              style={{ background: 'var(--accent)' }}>
-              <Plus size={15} /> Create board
-            </button>
-          </div>
+          <WelcomePanel
+            firstName={(user?.name ?? 'there').split(' ')[0]}
+            onCreate={(name) => createBoardFromTemplate(name)}
+          />
         ) : (
           <>
             {ownedBoards.length > 0 && (
@@ -183,6 +188,55 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Welcome panel (shown when the user has no boards) ────────────────────────
+// Figma-flavoured empty state: friendly greeting, three starter templates,
+// and a tiny "what's next" checklist so a brand-new account doesn't land on
+// a blank page wondering what to do.
+const TEMPLATES = [
+  { name: 'Untitled board',  emoji: '✏️',  caption: 'Start from a blank canvas' },
+  { name: 'Design review',   emoji: '🎨',  caption: 'Pin comments on shared work' },
+  { name: 'Moodboard',       emoji: '🌈',  caption: 'Drop in GIFs + references' },
+];
+
+function WelcomePanel({ firstName, onCreate }: { firstName: string; onCreate: (name: string) => void }) {
+  return (
+    <div className="rounded-2xl p-10 mx-auto max-w-3xl"
+      style={{ background: '#ffffff', border: '1px solid #ececef', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles size={16} style={{ color: 'var(--accent)' }} />
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
+          Welcome
+        </span>
+      </div>
+      <h2 className="text-2xl font-bold text-gray-900">Hi {firstName} 👋 — let's get you set up.</h2>
+      <p className="text-sm text-gray-500 mt-1.5 max-w-xl">
+        Peekboard is a collaborative canvas for motion + design reviews. Pick a template to start with, or open a blank board.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
+        {TEMPLATES.map(t => (
+          <button
+            key={t.name}
+            onClick={() => onCreate(t.name)}
+            className="text-left rounded-xl p-4 border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all"
+            style={{ background: '#fafbfc' }}
+          >
+            <span className="text-2xl block mb-1.5">{t.emoji}</span>
+            <span className="block text-sm font-semibold text-gray-900">{t.name}</span>
+            <span className="block text-xs text-gray-500 mt-0.5">{t.caption}</span>
+          </button>
+        ))}
+      </div>
+
+      <ul className="mt-8 space-y-1.5 text-sm text-gray-500">
+        <li>① Create a board → drop in GIFs, images, or videos.</li>
+        <li>② Click the speech-bubble icon to leave pinned comments.</li>
+        <li>③ Hit <em>Share</em> to invite teammates by email.</li>
+      </ul>
     </div>
   );
 }
