@@ -39,7 +39,6 @@ export default function Dashboard() {
   const [creating,     setCreating]     = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
   const [showModal,    setShowModal]    = useState(false);
-  const [activeMenu,   setActiveMenu]   = useState<string|null>(null);
   const [search,       setSearch]       = useState('');
   const [paletteOpen,  setPaletteOpen]  = useState(false);
   const [shortcutsOpen,setShortcutsOpen]= useState(false);
@@ -162,7 +161,7 @@ export default function Dashboard() {
   const moveBoardToProject = async (boardId: string, project_id: string | null) => {
     await boardsApi.move(boardId, project_id);
     setBoards(p => p.map(b => b.id === boardId ? { ...b, project_id } : b));
-    setActiveMenu(null);
+    setCtxPos(null);
   };
 
   // ── Single-board kebab actions ───────────────────────────────────────────
@@ -216,7 +215,7 @@ export default function Dashboard() {
     if (!confirm('Delete this board? This cannot be undone.')) return;
     await boardsApi.delete(id);
     setBoards(p => p.filter(b => b.id !== id));
-    setActiveMenu(null);
+    setCtxPos(null);
   };
 
   // Duplicate clones the canvas (objects + media) into a brand-new board you
@@ -224,7 +223,7 @@ export default function Dashboard() {
   // in "Your boards" since you become the owner of the duplicate).
   const duplicateBoard = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveMenu(null);
+    setCtxPos(null);
     try {
       const { board } = await boardsApi.duplicate(id);
       setBoards(p => [{ ...board, owner_name: user?.name ?? '', role: 'owner' as const }, ...p]);
@@ -459,18 +458,15 @@ export default function Dashboard() {
                 onOpen:          openBoard,
                 onOpenNewTab:    openBoardNewTab,
                 onCopyLink:      copyBoardLink,
-                onShare:         (id: string) => { setShareBoardId(id); setActiveMenu(null); setCtxPos(null); },
+                onShare:         (id: string) => { setShareBoardId(id); setCtxPos(null); },
                 onShowHistory:   showHistoryFor,
                 onRename:        startRename,
                 onDelete:        deleteBoard,
                 onDuplicate:     duplicateBoard,
                 onToggleStar:    toggleStar,
                 onMoveToProject: moveBoardToProject,
-                onContextOpen:   (id: string, x: number, y: number) => { setCtxPos({ id, x, y }); setActiveMenu(null); },
+                onContextOpen:   (id: string, x: number, y: number) => setCtxPos({ id, x, y }),
                 projects,
-                activeMenu,
-                onMenuToggle:    (id: string | null) => { setActiveMenu(id); setCtxPos(null); },
-                ctxPos,
                 renaming,
                 renameValue,
                 onRenameChange:  setRenameValue,
@@ -493,6 +489,31 @@ export default function Dashboard() {
         )}
       </main>
       </div>
+
+      {/* Root-level context menu — rendered outside all overflow-hidden containers */}
+      {ctxPos && (() => {
+        const b = boards.find(x => x.id === ctxPos.id);
+        if (!b) return null;
+        return (
+          <BoardActionMenu
+            board={b}
+            projects={projects}
+            showDelete={b.role === 'owner'}
+            onOpen={openBoard}
+            onOpenNewTab={openBoardNewTab}
+            onCopyLink={copyBoardLink}
+            onShare={(id) => { setShareBoardId(id); setCtxPos(null); }}
+            onDuplicate={duplicateBoard}
+            onShowHistory={showHistoryFor}
+            onRename={startRename}
+            onMoveToProject={moveBoardToProject}
+            onDelete={deleteBoard}
+            onClose={() => setCtxPos(null)}
+            anchorClass="fixed"
+            inlineStyle={{ left: ctxPos.x, top: ctxPos.y }}
+          />
+        );
+      })()}
 
       {showUseCase && user && (
         <UseCaseModal user={user} onSave={saveUseCase} onSkip={skipUseCase} />
@@ -675,8 +696,7 @@ interface BoardGridProps {
   onMoveToProject: (boardId: string, project_id: string | null) => void;
   onContextOpen: (id: string, x: number, y: number) => void;
   projects: Project[];
-  activeMenu: string|null; onMenuToggle: (id: string|null) => void; showDelete: boolean;
-  ctxPos: { x: number; y: number; id: string } | null;
+  showDelete: boolean;
   // Inline rename
   renaming:     string | null;
   renameValue:  string;
@@ -685,7 +705,7 @@ interface BoardGridProps {
   onRenameCancel: () => void;
 }
 
-function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, onShowHistory, onRename, onDelete, onDuplicate, onToggleStar, onMoveToProject, onContextOpen, projects, activeMenu, onMenuToggle, showDelete, ctxPos, renaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel }: BoardGridProps) {
+function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, onShowHistory, onRename, onDelete, onDuplicate, onToggleStar, onMoveToProject, onContextOpen, projects, showDelete, renaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel }: BoardGridProps) {
   return (
     <section className="mb-10">
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
@@ -776,30 +796,22 @@ function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, o
                     )}
                   </p>
                 </div>
-                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <button
-                    onClick={e => { e.stopPropagation(); onMenuToggle(activeMenu===board.id ? null : board.id); }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const menuW = 208;
+                      let x = rect.right - menuW;
+                      let y = rect.bottom + 4;
+                      if (x < 8) x = 8;
+                      if (x + menuW > window.innerWidth - 8) x = window.innerWidth - menuW - 8;
+                      if (y + 320 > window.innerHeight) y = rect.top - 320;
+                      onContextOpen(board.id, x, y);
+                    }}
                     className="p-1 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
                     <MoreVertical size={13} />
                   </button>
-                  {activeMenu === board.id && (
-                    <BoardActionMenu
-                      board={board}
-                      projects={projects}
-                      showDelete={showDelete}
-                      onOpen={onOpen}
-                      onOpenNewTab={onOpenNewTab}
-                      onCopyLink={onCopyLink}
-                      onShare={onShare}
-                      onDuplicate={onDuplicate}
-                      onShowHistory={onShowHistory}
-                      onRename={onRename}
-                      onMoveToProject={onMoveToProject}
-                      onDelete={onDelete}
-                      onClose={() => onMenuToggle(null)}
-                      anchorClass="absolute right-0 top-6"
-                    />
-                  )}
                 </div>
               </div>
             </div>
@@ -807,26 +819,6 @@ function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, o
         ))}
       </div>
 
-      {/* Right-click menu anchored at the cursor */}
-      {ctxPos && boards.find(b => b.id === ctxPos.id) && (
-        <BoardActionMenu
-          board={boards.find(b => b.id === ctxPos.id)!}
-          projects={projects}
-          showDelete={showDelete}
-          onOpen={onOpen}
-          onOpenNewTab={onOpenNewTab}
-          onCopyLink={onCopyLink}
-          onShare={onShare}
-          onDuplicate={onDuplicate}
-          onShowHistory={onShowHistory}
-          onRename={onRename}
-          onMoveToProject={onMoveToProject}
-          onDelete={onDelete}
-          onClose={() => onMenuToggle(null)}
-          anchorClass="fixed"
-          inlineStyle={{ left: ctxPos.x, top: ctxPos.y }}
-        />
-      )}
     </section>
   );
 }
