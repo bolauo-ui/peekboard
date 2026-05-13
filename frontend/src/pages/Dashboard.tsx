@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon, Sparkles } from 'lucide-react';
-import { boardsApi } from '@/lib/api';
+import { Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon, Sparkles, Search, Star, Command, AlertCircle } from 'lucide-react';
+import { authApi, boardsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { Board } from '@/types';
+import CommandPalette from '@/components/CommandPalette';
+import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 
 function timeAgo(d: string) {
   const diff = Date.now() - new Date(d).getTime();
@@ -39,10 +41,45 @@ export default function Dashboard() {
   const [newBoardName, setNewBoardName] = useState('');
   const [showModal,    setShowModal]    = useState(false);
   const [activeMenu,   setActiveMenu]   = useState<string|null>(null);
+  const [search,       setSearch]       = useState('');
+  const [paletteOpen,  setPaletteOpen]  = useState(false);
+  const [shortcutsOpen,setShortcutsOpen]= useState(false);
+  const [verifyState,  setVerifyState]  = useState<'idle'|'sent'>('idle');
 
   useEffect(() => {
     boardsApi.list().then(({ boards }) => setBoards(boards)).finally(() => setLoading(false));
   }, []);
+
+  // Dashboard-level keyboard shortcuts: ⌘K opens the command palette, ?
+  // opens the shortcuts sheet (skipped while typing in inputs).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
+      if (!inField && e.key === '?')             { e.preventDefault(); setShortcutsOpen(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setPaletteOpen(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Toggle starred on a board (optimistic, with rollback on error).
+  const toggleStar = async (b: Board, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !b.starred;
+    setBoards(p => p.map(x => x.id === b.id ? { ...x, starred: next } : x));
+    try {
+      if (next) await boardsApi.star(b.id);
+      else      await boardsApi.unstar(b.id);
+    } catch {
+      setBoards(p => p.map(x => x.id === b.id ? { ...x, starred: !next } : x));
+    }
+  };
+
+  const resendVerify = async () => {
+    try { await authApi.resendVerifyEmail(); setVerifyState('sent'); }
+    catch { /* swallow */ }
+  };
 
   const createBoard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,8 +123,22 @@ export default function Dashboard() {
     }
   };
 
-  const ownedBoards  = boards.filter(b => b.role === 'owner');
-  const sharedBoards = boards.filter(b => b.role !== 'owner');
+  // Apply the dashboard search filter, then split into owned vs. shared and
+  // bubble starred boards to the top of each list (Figma-style).
+  const visibleBoards = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q
+      ? boards.filter(b => b.name.toLowerCase().includes(q) || (b.owner_name ?? '').toLowerCase().includes(q))
+      : boards;
+  }, [boards, search]);
+
+  const starSort = (a: Board, b: Board) =>
+    Number(!!b.starred) - Number(!!a.starred) ||
+    (b.updated_at).localeCompare(a.updated_at);
+
+  const starredBoards = useMemo(() => visibleBoards.filter(b => b.starred).sort(starSort), [visibleBoards]);
+  const ownedBoards   = useMemo(() => visibleBoards.filter(b => b.role === 'owner' && !b.starred).sort(starSort), [visibleBoards]);
+  const sharedBoards  = useMemo(() => visibleBoards.filter(b => b.role !== 'owner' && !b.starred).sort(starSort), [visibleBoards]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -119,10 +170,47 @@ export default function Dashboard() {
       </header>
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
+        {/* Email-verification banner — auto-hides once verified or dismissed. */}
+        {user && user.email_verified === false && (
+          <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
+            style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#92400e' }}>
+            <AlertCircle size={13} />
+            <span className="flex-1">
+              {verifyState === 'sent'
+                ? 'Verification email re-sent — check your inbox.'
+                : <>Please verify your email — we sent a link to <strong>{user.email}</strong>.</>}
+            </span>
+            {verifyState !== 'sent' && (
+              <button onClick={resendVerify}
+                className="font-semibold underline" style={{ color: '#92400e' }}>
+                Resend
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-6 gap-4">
+          <div className="min-w-0">
             <h2 className="text-xl font-bold text-gray-900">My Boards</h2>
             <p className="text-sm text-gray-400 mt-0.5">Upload motion assets and add text overlays</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search boards"
+                className="text-sm rounded-md pl-7 pr-2 py-1.5 outline-none w-48 bg-white border border-gray-200 focus:border-gray-300"
+              />
+            </div>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              title="Quick switcher (⌘K)"
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors"
+            >
+              <Command size={12} /> K
+            </button>
           </div>
           <button onClick={() => setShowModal(true)}
             className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-colors"
@@ -137,26 +225,52 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <div key={i} className="bg-white rounded-xl border border-gray-200 h-44 animate-pulse" />)}
           </div>
-        ) : ownedBoards.length === 0 && sharedBoards.length === 0 ? (
-          <WelcomePanel
-            firstName={(user?.name ?? 'there').split(' ')[0]}
-            onCreate={(name) => createBoardFromTemplate(name)}
-          />
+        ) : starredBoards.length === 0 && ownedBoards.length === 0 && sharedBoards.length === 0 ? (
+          search.trim() ? (
+            <div className="text-center py-16">
+              <p className="text-sm text-gray-500">No boards match "{search}".</p>
+            </div>
+          ) : (
+            <WelcomePanel
+              firstName={(user?.name ?? 'there').split(' ')[0]}
+              onCreate={(name) => createBoardFromTemplate(name)}
+            />
+          )
         ) : (
           <>
-            {ownedBoards.length > 0 && (
-              <BoardGrid title="Your boards" boards={ownedBoards} onOpen={id => navigate(`/board/${id}`)}
+            {starredBoards.length > 0 && (
+              <BoardGrid title="Starred" boards={starredBoards}
+                onOpen={id => navigate(`/board/${id}`)}
                 onDelete={deleteBoard} onDuplicate={duplicateBoard}
+                onToggleStar={toggleStar}
+                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
+            )}
+            {ownedBoards.length > 0 && (
+              <BoardGrid title="Your boards" boards={ownedBoards}
+                onOpen={id => navigate(`/board/${id}`)}
+                onDelete={deleteBoard} onDuplicate={duplicateBoard}
+                onToggleStar={toggleStar}
                 activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
             )}
             {sharedBoards.length > 0 && (
-              <BoardGrid title="Shared with you" boards={sharedBoards} onOpen={id => navigate(`/board/${id}`)}
+              <BoardGrid title="Shared with you" boards={sharedBoards}
+                onOpen={id => navigate(`/board/${id}`)}
                 onDelete={deleteBoard} onDuplicate={duplicateBoard}
+                onToggleStar={toggleStar}
                 activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete={false} />
             )}
           </>
         )}
       </main>
+
+      {paletteOpen && (
+        <CommandPalette
+          boards={boards}
+          onClose={() => setPaletteOpen(false)}
+          onNewBoard={() => { setPaletteOpen(false); setShowModal(true); }}
+        />
+      )}
+      {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
 
       {/* New board modal */}
       {showModal && (
@@ -246,10 +360,11 @@ interface BoardGridProps {
   onOpen: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void;
+  onToggleStar: (b: Board, e: React.MouseEvent) => void;
   activeMenu: string|null; onMenuToggle: (id: string|null) => void; showDelete: boolean;
 }
 
-function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
+function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
   return (
     <section className="mb-10">
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
@@ -265,6 +380,19 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, activeMenu, o
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
+              {/* Star button — always visible if starred, on hover otherwise */}
+              <button
+                onClick={(e) => onToggleStar(board, e)}
+                title={board.starred ? 'Unstar' : 'Star'}
+                className={`absolute top-2 left-2 rounded-full p-1 transition-opacity ${board.starred ? '' : 'opacity-0 group-hover:opacity-100'}`}
+                style={{
+                  background: 'rgba(255,255,255,0.9)',
+                  color:      board.starred ? '#f59e0b' : '#9ca3af',
+                }}
+              >
+                <Star size={13} fill={board.starred ? '#f59e0b' : 'none'} />
+              </button>
+
               <div className="absolute top-2 right-2">
                 <span className="text-xs px-1.5 py-0.5 rounded-full font-medium"
                   style={{ background: ROLE_PILL[board.role]?.bg, color: ROLE_PILL[board.role]?.text }}>
@@ -278,8 +406,20 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, activeMenu, o
                 <div className="min-w-0">
                   <p className="font-semibold text-gray-900 text-sm truncate">{board.name}</p>
                   <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                    <Clock size={10} />{timeAgo(board.updated_at)}
-                    {board.role !== 'owner' && <span className="flex items-center gap-0.5 ml-1"><Users size={10} />{board.owner_name}</span>}
+                    <Clock size={10} />{timeAgo(board.last_edited_at ?? board.updated_at)}
+                    {board.last_edited_by_name && (
+                      <span className="flex items-center gap-1 ml-1">
+                        <span className="rounded-full flex items-center justify-center text-white font-bold"
+                          style={{
+                            width: 14, height: 14, fontSize: 8,
+                            background: board.last_edited_by_color || '#888',
+                          }}
+                        >
+                          {board.last_edited_by_name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate">{board.last_edited_by_name}</span>
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>

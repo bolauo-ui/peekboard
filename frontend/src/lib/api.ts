@@ -45,6 +45,12 @@ export const authApi = {
 
   reset: (data: { token: string; password: string }) =>
     http.post<{ token: string; user: User }>('/auth/reset', data).then((r) => r.data),
+
+  verifyEmail: (token: string) =>
+    http.get<{ success: boolean }>(`/auth/verify-email?token=${encodeURIComponent(token)}`).then((r) => r.data),
+
+  resendVerifyEmail: () =>
+    http.post<{ success: boolean; already?: boolean }>('/auth/verify-email/resend').then((r) => r.data),
 };
 
 // ── Boards ────────────────────────────────────────────────────────────────────
@@ -80,6 +86,12 @@ export const boardsApi = {
 
   duplicate: (id: string) =>
     http.post<{ board: Board }>(`/boards/${id}/duplicate`).then((r) => r.data),
+
+  star: (id: string) =>
+    http.post<{ success: boolean; starred: boolean }>(`/boards/${id}/star`).then((r) => r.data),
+
+  unstar: (id: string) =>
+    http.delete<{ success: boolean; starred: boolean }>(`/boards/${id}/star`).then((r) => r.data),
 };
 
 // ── Sharing ───────────────────────────────────────────────────────────────────

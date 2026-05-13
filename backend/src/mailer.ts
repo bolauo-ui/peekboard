@@ -111,6 +111,52 @@ Open it here: ${inviteUrl}
   };
 }
 
+export function verifyEmail(name: string, verifyUrl: string): MailMessage {
+  return {
+    to:      '',
+    subject: 'Confirm your Peekboard email',
+    text:
+`Hi ${name.split(' ')[0]},
+
+Thanks for signing up. Please confirm your email by clicking the link below:
+
+${verifyUrl}
+
+The link expires in 24 hours. If you didn't sign up, just ignore this email.
+
+— Peekboard`,
+    html: shell('Confirm your email', `
+      <h1>One quick step — confirm your email</h1>
+      <p>Hi ${escapeHtml(name.split(' ')[0])}, click below to confirm <strong>${escapeHtml('your email')}</strong>. The link expires in 24 hours.</p>
+      <p><a class="btn" href="${verifyUrl}">Confirm email</a></p>
+      <p>If you didn't sign up, ignore this — no account will be activated.</p>
+    `),
+  };
+}
+
+export function mentionEmail(
+  fromName: string, boardName: string, commentText: string, boardUrl: string,
+): MailMessage {
+  const snippet = commentText.length > 220 ? commentText.slice(0, 220) + '…' : commentText;
+  return {
+    to:      '',
+    subject: `${fromName} mentioned you in "${boardName}"`,
+    text:
+`${fromName} @mentioned you on "${boardName}":
+
+"${snippet}"
+
+Open the thread: ${boardUrl}
+
+— Peekboard`,
+    html: shell('You were mentioned', `
+      <h1>${escapeHtml(fromName)} mentioned you in "${escapeHtml(boardName)}"</h1>
+      <p style="background:#f5f5f7;padding:12px 14px;border-radius:8px;border-left:3px solid #7b68ee;margin:14px 0;">${escapeHtml(snippet)}</p>
+      <p><a class="btn" href="${boardUrl}">View thread</a></p>
+    `),
+  };
+}
+
 export function resetEmail(name: string, resetUrl: string): MailMessage {
   return {
     to:      '',

@@ -6,7 +6,8 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { sendMail, welcomeEmail, inviteEmail, resetEmail } from './mailer';
+import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail } from './mailer';
+import { makeWelcomeCanvas } from './welcomeBoard';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -52,10 +53,17 @@ console.log(`[peekboard] storage → db=${DB_PATH}  uploads=${UPLOADS_DIR}`);
 interface User {
   id: string; email: string; name: string;
   password_hash: string; avatar_color: string; created_at: string;
+  // Set true once the user clicks the link emailed on signup. Optional for
+  // backwards-compat with rows created before this column existed.
+  email_verified?: boolean;
 }
 interface Board {
   id: string; name: string; owner_id: string; canvas_data: string;
   width: number; height: number; created_at: string; updated_at: string;
+  // Tracks who last touched the board so cards can show "Edited by …"
+  // without needing the canvas history. Optional for back-compat.
+  last_edited_by?: string;   // user id
+  last_edited_at?: string;   // ISO timestamp
 }
 interface BoardAccess {
   id: string; board_id: string; email: string; user_id: string | null;
@@ -71,17 +79,39 @@ interface PasswordReset {
   user_id:    string;
   expires_at: number;   // ms since epoch
 }
+// Email-verification one-time tokens. Burned on use, GC'd when expired.
+interface EmailVerify {
+  token:      string;
+  user_id:    string;
+  expires_at: number;
+}
+// User-specific "starred" boards. We keep this in its own table rather than
+// piggybacking on BoardAccess because the owner doesn't have a board_access
+// row for their own boards.
+interface BoardStar {
+  user_id:  string;
+  board_id: string;
+}
 interface DbSchema {
   users: User[]; boards: Board[]; board_access: BoardAccess[]; comments: Comment[];
   password_resets?: PasswordReset[];
+  email_verifies?:  EmailVerify[];
+  stars?:           BoardStar[];
 }
 
 const readDb = (): DbSchema => {
   try {
     const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DbSchema;
     db.password_resets ??= [];
+    db.email_verifies  ??= [];
+    db.stars           ??= [];
     return db;
-  } catch { return { users: [], boards: [], board_access: [], comments: [], password_resets: [] }; }
+  } catch {
+    return {
+      users: [], boards: [], board_access: [], comments: [],
+      password_resets: [], email_verifies: [], stars: [],
+    };
+  }
 };
 
 const writeDb = (data: DbSchema): void => {
@@ -148,15 +178,71 @@ app.post('/api/auth/register', async (req, res) => {
   const avatar_color = colors[Math.floor(Math.random() * colors.length)];
   const now = new Date().toISOString();
 
-  db.users.push({ id, email: normalEmail, name, password_hash, avatar_color, created_at: now });
+  db.users.push({ id, email: normalEmail, name, password_hash, avatar_color, created_at: now, email_verified: false });
+
+  // Auto-create a "Welcome" board so the user lands on something real
+  // instead of an empty dashboard. The canvas content is hand-crafted
+  // fabric.js JSON — see welcomeBoard.ts.
+  const welcomeBoardId = uuidv4();
+  db.boards.push({
+    id:             welcomeBoardId,
+    name:           'Welcome to Peekboard',
+    owner_id:       id,
+    canvas_data:    makeWelcomeCanvas(name),
+    width:          1440, height: 900,
+    created_at:     now, updated_at: now,
+    last_edited_by: id, last_edited_at: now,
+  });
+
+  // Issue an email-verification token (24h TTL) and stash it.
+  const verifyToken = uuidv4().replace(/-/g, '');
+  db.email_verifies!.push({ token: verifyToken, user_id: id, expires_at: Date.now() + 24*60*60*1000 });
+  db.email_verifies = db.email_verifies!.filter(v => v.expires_at > Date.now());
+
   writeDb(db);
 
-  // Fire-and-forget welcome email; failure does not block account creation.
+  // Fire-and-forget welcome + verify emails; failure does not block account creation.
   sendMail({ ...welcomeEmail(name, APP_URL), to: normalEmail })
     .catch(err => console.warn('[peekboard] welcome mail failed', err));
+  sendMail({ ...verifyEmail(name, `${APP_URL}/verify-email?token=${verifyToken}`), to: normalEmail })
+    .catch(err => console.warn('[peekboard] verify mail failed', err));
 
   const token = jwt.sign({ id, email: normalEmail, name, avatar_color }, JWT_SECRET, { expiresIn: '365d' });
-  res.status(201).json({ token, user: { id, email: normalEmail, name, avatar_color } });
+  res.status(201).json({ token, user: { id, email: normalEmail, name, avatar_color, email_verified: false } });
+});
+
+// Verify email token. We use GET so the link in the email can be clicked
+// directly without JavaScript on the receiving side.
+app.get('/api/auth/verify-email', (req, res) => {
+  const token = String(req.query.token ?? '');
+  if (!token) { res.status(400).json({ error: 'Missing token' }); return; }
+  const db = readDb();
+  const entry = db.email_verifies!.find(v => v.token === token);
+  if (!entry || entry.expires_at < Date.now()) {
+    res.status(400).json({ error: 'This verification link has expired. Sign in and resend it.' });
+    return;
+  }
+  const user = db.users.find(u => u.id === entry.user_id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  user.email_verified = true;
+  db.email_verifies = db.email_verifies!.filter(v => v.token !== token);
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// Resend the verification email for the currently-authenticated user.
+app.post('/api/auth/verify-email/resend', authenticate, (req: any, res) => {
+  const db = readDb();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  if (user.email_verified) { res.json({ success: true, already: true }); return; }
+  const verifyToken = uuidv4().replace(/-/g, '');
+  db.email_verifies!.push({ token: verifyToken, user_id: user.id, expires_at: Date.now() + 24*60*60*1000 });
+  db.email_verifies = db.email_verifies!.filter(v => v.expires_at > Date.now());
+  writeDb(db);
+  sendMail({ ...verifyEmail(user.name, `${APP_URL}/verify-email?token=${verifyToken}`), to: user.email })
+    .catch(err => console.warn('[peekboard] verify resend failed', err));
+  res.json({ success: true });
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -174,7 +260,7 @@ app.post('/api/auth/login', async (req, res) => {
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
     JWT_SECRET, { expiresIn: '365d' }
   );
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
 });
 
 // ── Google Sign-In ─────────────────────────────────────────────────────────
@@ -232,7 +318,7 @@ app.post('/api/auth/google', async (req, res) => {
       { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
       JWT_SECRET, { expiresIn: '365d' }
     );
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
   } catch (err: any) {
     console.error('Google auth failed:', err);
     res.status(500).json({ error: 'Google sign-in failed' });
@@ -327,15 +413,32 @@ app.post('/api/auth/reset', async (req, res) => {
     { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color },
     JWT_SECRET, { expiresIn: '365d' }
   );
-  res.json({ token: newToken, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color } });
+  res.json({ token: newToken, user: { id: user.id, email: user.email, name: user.name, avatar_color: user.avatar_color, email_verified: !!user.email_verified } });
 });
 
 // ── Boards ────────────────────────────────────────────────────────────────────
 app.get('/api/boards', authenticate, (req: any, res) => {
   const db = readDb();
+  // Build a lookup of the user's starred board ids and a tiny user-info
+  // helper so we can attach edit + star metadata to every row.
+  const myStars = new Set((db.stars ?? []).filter(s => s.user_id === req.user.id).map(s => s.board_id));
+  const userInfo = (uid?: string) => {
+    if (!uid) return null;
+    const u = db.users.find(u => u.id === uid);
+    return u ? { id: u.id, name: u.name, avatar_color: u.avatar_color } : null;
+  };
+  const decorate = (b: Board, role: string) => ({
+    ...b,
+    role,
+    owner_name:         userInfo(b.owner_id)?.name ?? '',
+    starred:            myStars.has(b.id),
+    last_edited_by_name: userInfo(b.last_edited_by ?? b.owner_id)?.name ?? '',
+    last_edited_by_color: userInfo(b.last_edited_by ?? b.owner_id)?.avatar_color ?? '#888',
+  });
+
   const owned = db.boards
     .filter((b) => b.owner_id === req.user.id)
-    .map((b) => ({ ...b, owner_name: db.users.find((u) => u.id === b.owner_id)?.name ?? '', role: 'owner' }))
+    .map((b) => decorate(b, 'owner'))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   const shared = db.board_access
@@ -343,11 +446,26 @@ app.get('/api/boards', authenticate, (req: any, res) => {
     .flatMap((a) => {
       const board = db.boards.find((b) => b.id === a.board_id);
       if (!board) return [];
-      return [{ ...board, owner_name: db.users.find((u) => u.id === board.owner_id)?.name ?? '', role: a.role }];
+      return [decorate(board, a.role)];
     })
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   res.json({ boards: [...owned, ...shared] });
+});
+
+// Star / unstar a board.
+app.post('/api/boards/:id/star', authenticate, requireBoardRole(['owner','editor','commenter','viewer']), (req: any, res) => {
+  const db = readDb();
+  const exists = db.stars!.some(s => s.user_id === req.user.id && s.board_id === req.params.id);
+  if (!exists) db.stars!.push({ user_id: req.user.id, board_id: req.params.id });
+  writeDb(db);
+  res.json({ success: true, starred: true });
+});
+app.delete('/api/boards/:id/star', authenticate, (req: any, res) => {
+  const db = readDb();
+  db.stars = db.stars!.filter(s => !(s.user_id === req.user.id && s.board_id === req.params.id));
+  writeDb(db);
+  res.json({ success: true, starred: false });
 });
 
 app.post('/api/boards', authenticate, (req: any, res) => {
@@ -381,7 +499,14 @@ app.put('/api/boards/:id', authenticate, requireBoardRole(['owner','editor']), (
   if (canvas_data !== undefined) board.canvas_data = canvas_data;
   if (width !== undefined) board.width = width;
   if (height !== undefined) board.height = height;
-  board.updated_at = new Date().toISOString();
+  const now = new Date().toISOString();
+  board.updated_at = now;
+  // Track who last edited this board so the dashboard can show an
+  // "Edited by …" avatar next to the timestamp.
+  if (canvas_data !== undefined || name !== undefined || width !== undefined || height !== undefined) {
+    board.last_edited_by = req.user.id;
+    board.last_edited_at = now;
+  }
   writeDb(db);
   res.json({ success: true });
 });
@@ -543,6 +668,44 @@ app.post('/api/boards/:id/comments', authenticate, requireBoardRole(['owner','ed
   writeDb(db);
 
   const u = db.users.find((u) => u.id === req.user.id)!;
+
+  // ── @mention notifications ────────────────────────────────────────────────
+  // Build the candidate list of "mentionable" users on this board: the
+  // owner plus everyone with accepted board access. Then for every
+  // "@Name" / "@First Last" substring in the comment, resolve to a user
+  // and fire the mention email. Self-mentions are skipped so you don't
+  // get an email for tagging yourself.
+  const board = db.boards.find(b => b.id === req.params.id);
+  if (board) {
+    const recipients = new Map<string, { id: string; email: string; name: string }>();
+    const owner = db.users.find(u => u.id === board.owner_id);
+    if (owner) recipients.set(owner.id, { id: owner.id, email: owner.email, name: owner.name });
+    db.board_access
+      .filter(a => a.board_id === board.id && a.accepted && a.user_id)
+      .forEach(a => {
+        const m = db.users.find(u => u.id === a.user_id);
+        if (m) recipients.set(m.id, { id: m.id, email: m.email, name: m.name });
+      });
+
+    const mentioned = new Set<string>();
+    const mentionRe = /@([A-Za-z][\w'-]*(?:\s[A-Z][\w'-]*)?)/g;
+    let m: RegExpExecArray | null;
+    while ((m = mentionRe.exec(comment.content)) !== null) {
+      const name = m[1].trim().toLowerCase();
+      for (const r of recipients.values()) {
+        if (r.id === u.id) continue;             // skip self
+        if (r.name.toLowerCase() === name)       mentioned.add(r.id);
+        if (r.name.toLowerCase().split(' ')[0] === name) mentioned.add(r.id);
+      }
+    }
+    const boardUrl = `${APP_URL}/board/${board.id}`;
+    for (const id of mentioned) {
+      const r = recipients.get(id)!;
+      sendMail({ ...mentionEmail(u.name, board.name, comment.content, boardUrl), to: r.email })
+        .catch(err => console.warn('[peekboard] mention mail failed', err));
+    }
+  }
+
   res.status(201).json({ comment: { ...comment, user_name: u.name, avatar_color: u.avatar_color } });
 });
 

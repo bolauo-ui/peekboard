@@ -3,6 +3,7 @@ export interface User {
   email: string;
   name: string;
   avatar_color: string;
+  email_verified?: boolean;
 }
 
 export interface Board {
@@ -16,6 +17,11 @@ export interface Board {
   created_at: string;
   updated_at: string;
   role: 'owner' | 'editor' | 'commenter' | 'viewer';
+  starred?: boolean;
+  last_edited_by?: string;
+  last_edited_at?: string;
+  last_edited_by_name?:  string;
+  last_edited_by_color?: string;
 }
 
 export interface BoardMember {

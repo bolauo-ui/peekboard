@@ -14,6 +14,8 @@ import CommentsPanel from '@/components/CommentsPanel';
 import CommentsOverlay, { type BoardMemberLite } from '@/components/canvas/CommentsOverlay';
 import ZoomControl from '@/components/canvas/ZoomControl';
 import ContextMenu from '@/components/canvas/ContextMenu';
+import ShortcutsOverlay from '@/components/ShortcutsOverlay';
+import { setFaviconDot } from '@/lib/favicon';
 
 export default function Board() {
   const { id } = useParams<{ id: string }>();
@@ -44,6 +46,7 @@ export default function Board() {
   const [showResolved,    setShowResolved]    = useState(false);
   const [openPinId,       setOpenPinId]       = useState<string | null>(null);
   const [ctxMenu,         setCtxMenu]         = useState<{ x: number; y: number; target: fabric.Object } | null>(null);
+  const [shortcutsOpen,   setShortcutsOpen]   = useState(false);
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,6 +88,14 @@ export default function Board() {
       setMembers(list.filter(m => (seen.has(m.id) ? false : (seen.add(m.id), true))));
     }).catch(() => { /* silent */ });
   }, [id, board]);
+
+  // Paint a red dot on the favicon whenever there are unresolved comments on
+  // this board, so a backgrounded tab signals "someone needs your eyes."
+  useEffect(() => {
+    const open = comments.filter(c => !c.resolved).length;
+    setFaviconDot(open);
+    return () => setFaviconDot(0);
+  }, [comments]);
 
   // ── Comment mutations (shared by overlay + sidebar) ──────────────────────
   const addComment = useCallback(async (x: number, y: number, content: string) => {
@@ -182,6 +193,13 @@ export default function Board() {
       if (meta && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         editorRef.current?.flushSave();
+        return;
+      }
+
+      // ── ? opens the keyboard-shortcut overlay ─────────────────────────────
+      if (!meta && e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen(true);
         return;
       }
 
@@ -549,6 +567,8 @@ export default function Board() {
       {showShare && user && (
         <ShareModal boardId={board.id} currentUser={user} onClose={() => setShowShare(false)} />
       )}
+
+      {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
 
       {ctxMenu && (
         <ContextMenu
