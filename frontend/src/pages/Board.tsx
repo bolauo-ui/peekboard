@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { fabric } from 'fabric';
 import { Users, MessageSquare, ChevronRight, ChevronLeft } from 'lucide-react';
 import { boardsApi, uploadApi, commentsApi, sharingApi } from '@/lib/api';
@@ -22,6 +22,7 @@ import { setFaviconDot } from '@/lib/favicon';
 export default function Board() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
 
   const [board, setBoard]       = useState<BoardType | null>(null);
@@ -36,7 +37,9 @@ export default function Board() {
   const [showShare,    setShowShare]    = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showProps,    setShowProps]    = useState(true);
-  const [showHistory,  setShowHistory]  = useState(false);
+  // Open the history drawer automatically when arriving via the dashboard
+  // kebab's "Show version history" deep-link (`?history=1`).
+  const [showHistory,  setShowHistory]  = useState(searchParams.get('history') === '1');
   const [reloadKey,    setReloadKey]    = useState(0);
   const [showLayers,   setShowLayers]   = useState(true);
   const [layerVersion, setLayerVersion] = useState(0);

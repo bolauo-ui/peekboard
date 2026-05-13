@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon,
   Sparkles, Search, Star, Command, AlertCircle, Folder, FolderPlus, FolderOpen,
-  Home, MoveRight,
+  Home, MoveRight, ExternalLink, Link as LinkIcon, Share2, History, Edit3,
 } from 'lucide-react';
 import { authApi, boardsApi, projectsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -13,6 +13,7 @@ import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 import UseCaseModal from '@/components/UseCaseModal';
 import AvatarImage from '@/components/AvatarImage';
 import NotificationsBell from '@/components/NotificationsBell';
+import ShareModal from '@/components/ShareModal';
 
 function timeAgo(d: string) {
   const diff = Date.now() - new Date(d).getTime();
@@ -43,6 +44,13 @@ export default function Dashboard() {
   const [paletteOpen,  setPaletteOpen]  = useState(false);
   const [shortcutsOpen,setShortcutsOpen]= useState(false);
   const [verifyState,  setVerifyState]  = useState<'idle'|'sent'|'logged'>('idle');
+  // Board-card action state: open Share modal for a given board, rename
+  // inline, anchor right-click menu at cursor coords (overriding the
+  // default kebab-anchored position).
+  const [shareBoardId, setShareBoardId] = useState<string | null>(null);
+  const [renaming,     setRenaming]     = useState<string | null>(null);
+  const [renameValue,  setRenameValue]  = useState('');
+  const [ctxPos,       setCtxPos]       = useState<{ x: number; y: number; id: string } | null>(null);
   const [mailConfigured, setMailConfigured] = useState<boolean | null>(null);
   // Probe once on mount so we can tell the user upfront whether the server
   // is actually wired up to send email (RESEND_API_KEY set).
@@ -155,6 +163,32 @@ export default function Dashboard() {
     await boardsApi.move(boardId, project_id);
     setBoards(p => p.map(b => b.id === boardId ? { ...b, project_id } : b));
     setActiveMenu(null);
+  };
+
+  // ── Single-board kebab actions ───────────────────────────────────────────
+  const openBoard       = (id: string)                 => navigate(`/board/${id}`);
+  const openBoardNewTab = (id: string)                 => window.open(`/board/${id}`, '_blank', 'noopener');
+  const copyBoardLink   = async (id: string) => {
+    const url = `${window.location.origin}/board/${id}`;
+    try { await navigator.clipboard.writeText(url); }
+    catch { /* ignore — older browsers, http://, etc. */ }
+    setActiveMenu(null); setCtxPos(null);
+  };
+  const showHistoryFor  = (id: string) => navigate(`/board/${id}?history=1`);
+  const startRename     = (board: Board) => {
+    setRenaming(board.id);
+    setRenameValue(board.name);
+    setActiveMenu(null); setCtxPos(null);
+  };
+  const commitRename = async (board: Board) => {
+    const next = renameValue.trim();
+    if (!next || next === board.name) { setRenaming(null); return; }
+    try {
+      await boardsApi.update(board.id, { name: next });
+      setBoards(p => p.map(b => b.id === board.id ? { ...b, name: next } : b));
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Rename failed');
+    } finally { setRenaming(null); }
   };
 
   const createBoard = async (e: React.FormEvent) => {
@@ -420,33 +454,41 @@ export default function Dashboard() {
           )
         ) : (
           <>
-            {starredBoards.length > 0 && (
-              <BoardGrid title="Starred" boards={starredBoards}
-                onOpen={id => navigate(`/board/${id}`)}
-                onDelete={deleteBoard} onDuplicate={duplicateBoard}
-                onToggleStar={toggleStar}
-                onMoveToProject={moveBoardToProject}
-                projects={projects}
-                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
-            )}
-            {ownedBoards.length > 0 && (
-              <BoardGrid title="Your boards" boards={ownedBoards}
-                onOpen={id => navigate(`/board/${id}`)}
-                onDelete={deleteBoard} onDuplicate={duplicateBoard}
-                onToggleStar={toggleStar}
-                onMoveToProject={moveBoardToProject}
-                projects={projects}
-                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete />
-            )}
-            {sharedBoards.length > 0 && (
-              <BoardGrid title="Shared with you" boards={sharedBoards}
-                onOpen={id => navigate(`/board/${id}`)}
-                onDelete={deleteBoard} onDuplicate={duplicateBoard}
-                onToggleStar={toggleStar}
-                onMoveToProject={moveBoardToProject}
-                projects={projects}
-                activeMenu={activeMenu} onMenuToggle={setActiveMenu} showDelete={false} />
-            )}
+            {(() => {
+              const sharedGridProps = {
+                onOpen:          openBoard,
+                onOpenNewTab:    openBoardNewTab,
+                onCopyLink:      copyBoardLink,
+                onShare:         (id: string) => { setShareBoardId(id); setActiveMenu(null); setCtxPos(null); },
+                onShowHistory:   showHistoryFor,
+                onRename:        startRename,
+                onDelete:        deleteBoard,
+                onDuplicate:     duplicateBoard,
+                onToggleStar:    toggleStar,
+                onMoveToProject: moveBoardToProject,
+                onContextOpen:   (id: string, x: number, y: number) => { setCtxPos({ id, x, y }); setActiveMenu(null); },
+                projects,
+                activeMenu,
+                onMenuToggle:    (id: string | null) => { setActiveMenu(id); setCtxPos(null); },
+                ctxPos,
+                renaming,
+                renameValue,
+                onRenameChange:  setRenameValue,
+                onRenameCommit:  commitRename,
+                onRenameCancel:  () => setRenaming(null),
+              };
+              return <>
+                {starredBoards.length > 0 && (
+                  <BoardGrid title="Starred" boards={starredBoards} {...sharedGridProps} showDelete />
+                )}
+                {ownedBoards.length > 0 && (
+                  <BoardGrid title="Your boards" boards={ownedBoards} {...sharedGridProps} showDelete />
+                )}
+                {sharedBoards.length > 0 && (
+                  <BoardGrid title="Shared with you" boards={sharedBoards} {...sharedGridProps} showDelete={false} />
+                )}
+              </>;
+            })()}
           </>
         )}
       </main>
@@ -454,6 +496,14 @@ export default function Dashboard() {
 
       {showUseCase && user && (
         <UseCaseModal user={user} onSave={saveUseCase} onSkip={skipUseCase} />
+      )}
+
+      {shareBoardId && user && (
+        <ShareModal
+          boardId={shareBoardId}
+          currentUser={user}
+          onClose={() => setShareBoardId(null)}
+        />
       )}
 
       {paletteOpen && (
@@ -614,22 +664,42 @@ function WelcomePanel({ firstName, onCreate }: { firstName: string; onCreate: (n
 interface BoardGridProps {
   title: string; boards: Board[];
   onOpen: (id: string) => void;
+  onOpenNewTab: (id: string) => void;
+  onCopyLink: (id: string) => void;
+  onShare: (id: string) => void;
+  onShowHistory: (id: string) => void;
+  onRename: (b: Board) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void;
   onToggleStar: (b: Board, e: React.MouseEvent) => void;
   onMoveToProject: (boardId: string, project_id: string | null) => void;
+  onContextOpen: (id: string, x: number, y: number) => void;
   projects: Project[];
   activeMenu: string|null; onMenuToggle: (id: string|null) => void; showDelete: boolean;
+  ctxPos: { x: number; y: number; id: string } | null;
+  // Inline rename
+  renaming:     string | null;
+  renameValue:  string;
+  onRenameChange: (v: string) => void;
+  onRenameCommit: (b: Board) => void;
+  onRenameCancel: () => void;
 }
 
-function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar, onMoveToProject, projects, activeMenu, onMenuToggle, showDelete }: BoardGridProps) {
+function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, onShowHistory, onRename, onDelete, onDuplicate, onToggleStar, onMoveToProject, onContextOpen, projects, activeMenu, onMenuToggle, showDelete, ctxPos, renaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel }: BoardGridProps) {
   return (
     <section className="mb-10">
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {boards.map(board => (
-          <div key={board.id} onClick={() => onOpen(board.id)}
-            className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group overflow-hidden">
+          <div
+            key={board.id}
+            onClick={() => { if (renaming !== board.id) onOpen(board.id); }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onContextOpen(board.id, e.clientX, e.clientY);
+            }}
+            className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group overflow-hidden"
+          >
             {/* Thumbnail — real canvas snapshot if available, else generic icon */}
             <div className="h-28 flex items-center justify-center relative overflow-hidden" style={{ background: '#f5f5f5' }}>
               {board.thumbnail_url ? (
@@ -670,8 +740,25 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar,
             {/* Info */}
             <div className="px-3 py-2.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 text-sm truncate">{board.name}</p>
+                <div className="min-w-0 flex-1">
+                  {renaming === board.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => onRenameChange(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={() => onRenameCommit(board)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter')  onRenameCommit(board);
+                        if (e.key === 'Escape') onRenameCancel();
+                      }}
+                      className="w-full text-sm font-semibold rounded px-1 py-0.5 outline-none"
+                      style={{ background: '#f9fafb', border: '1px solid var(--accent)' }}
+                    />
+                  ) : (
+                    <p className="font-semibold text-gray-900 text-sm truncate">{board.name}</p>
+                  )}
                   <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                     <Clock size={10} />{timeAgo(board.last_edited_at ?? board.updated_at)}
                     {board.last_edited_by_name && (
@@ -696,44 +783,22 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar,
                     <MoreVertical size={13} />
                   </button>
                   {activeMenu === board.id && (
-                    <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-44">
-                      <button onClick={e => onDuplicate(board.id, e)}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
-                        <Copy size={12} /> Duplicate
-                      </button>
-
-                      {/* Move to project */}
-                      {showDelete && (
-                        <div className="border-t border-gray-100 mt-1 pt-1">
-                          <div className="px-3 pt-1 pb-0.5 text-[9px] uppercase tracking-wider text-gray-400">Move to</div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onMoveToProject(board.id, null); }}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100"
-                          >
-                            <Home size={12} /> All boards
-                          </button>
-                          {projects.map(p => (
-                            <button
-                              key={p.id}
-                              onClick={(e) => { e.stopPropagation(); onMoveToProject(board.id, p.id); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100"
-                            >
-                              <span className="rounded-sm flex-shrink-0" style={{ width: 9, height: 9, background: p.color }} />
-                              <span className="truncate">{p.name}</span>
-                              {board.project_id === p.id && <MoveRight size={10} className="ml-auto text-gray-400" />}
-                            </button>
-                          ))}
-                          <div className="border-t border-gray-100 my-1" />
-                        </div>
-                      )}
-
-                      {showDelete && (
-                        <button onClick={e => onDelete(board.id, e)}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">
-                          <Trash2 size={12} /> Delete board
-                        </button>
-                      )}
-                    </div>
+                    <BoardActionMenu
+                      board={board}
+                      projects={projects}
+                      showDelete={showDelete}
+                      onOpen={onOpen}
+                      onOpenNewTab={onOpenNewTab}
+                      onCopyLink={onCopyLink}
+                      onShare={onShare}
+                      onDuplicate={onDuplicate}
+                      onShowHistory={onShowHistory}
+                      onRename={onRename}
+                      onMoveToProject={onMoveToProject}
+                      onDelete={onDelete}
+                      onClose={() => onMenuToggle(null)}
+                      anchorClass="absolute right-0 top-6"
+                    />
                   )}
                 </div>
               </div>
@@ -741,6 +806,133 @@ function BoardGrid({ title, boards, onOpen, onDelete, onDuplicate, onToggleStar,
           </div>
         ))}
       </div>
+
+      {/* Right-click menu anchored at the cursor */}
+      {ctxPos && boards.find(b => b.id === ctxPos.id) && (
+        <BoardActionMenu
+          board={boards.find(b => b.id === ctxPos.id)!}
+          projects={projects}
+          showDelete={showDelete}
+          onOpen={onOpen}
+          onOpenNewTab={onOpenNewTab}
+          onCopyLink={onCopyLink}
+          onShare={onShare}
+          onDuplicate={onDuplicate}
+          onShowHistory={onShowHistory}
+          onRename={onRename}
+          onMoveToProject={onMoveToProject}
+          onDelete={onDelete}
+          onClose={() => onMenuToggle(null)}
+          anchorClass="fixed"
+          inlineStyle={{ left: ctxPos.x, top: ctxPos.y }}
+        />
+      )}
     </section>
+  );
+}
+
+// ── BoardActionMenu — Figma-style three-section list ────────────────────────
+interface ActionMenuProps {
+  board: Board;
+  projects: Project[];
+  showDelete: boolean;
+  onOpen: (id: string) => void;
+  onOpenNewTab: (id: string) => void;
+  onCopyLink: (id: string) => void;
+  onShare: (id: string) => void;
+  onDuplicate: (id: string, e: React.MouseEvent) => void;
+  onShowHistory: (id: string) => void;
+  onRename: (b: Board) => void;
+  onMoveToProject: (boardId: string, project_id: string | null) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
+  onClose: () => void;
+  anchorClass: string;
+  inlineStyle?: React.CSSProperties;
+}
+function BoardActionMenu(p: ActionMenuProps) {
+  const { board, projects, showDelete } = p;
+  // Close on outside-click or Escape.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest('.board-action-menu')) return;
+      p.onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') p.onClose(); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown',   onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown',   onKey);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const Item = ({ icon, label, onSelect, danger, kbd }: {
+    icon: React.ReactNode; label: string; onSelect: () => void; danger?: boolean; kbd?: string;
+  }) => (
+    <button
+      onClick={(e) => { e.stopPropagation(); onSelect(); p.onClose(); }}
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px]"
+      style={{ color: danger ? '#dc2626' : '#1f2024' }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = danger ? 'rgba(220,38,38,0.05)' : '#f3f4f6')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      <span style={{ width: 14, opacity: 0.7 }}>{icon}</span>
+      <span className="flex-1 text-left">{label}</span>
+      {kbd && <span className="text-[10px]" style={{ color: '#9ca3af' }}>{kbd}</span>}
+    </button>
+  );
+  const Sep = () => <div className="my-1" style={{ height: 1, background: '#ececef' }} />;
+
+  return (
+    <div
+      className={`board-action-menu ${p.anchorClass} bg-white rounded-lg shadow-lg z-50 py-1 w-52`}
+      style={{ border: '1px solid #ececef', ...p.inlineStyle }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Item icon={<FolderOpen size={12} />}  label="Open"           onSelect={() => p.onOpen(board.id)} />
+      <Item icon={<ExternalLink size={12} />} label="Open in new tab" onSelect={() => p.onOpenNewTab(board.id)} />
+      <Sep />
+      <Item icon={<LinkIcon size={12} />}   label="Copy link"       onSelect={() => p.onCopyLink(board.id)} />
+      {showDelete && <Item icon={<Share2 size={12} />} label="Share" onSelect={() => p.onShare(board.id)} />}
+      <Item icon={<Copy size={12} />}        label="Duplicate"      onSelect={() => p.onDuplicate(board.id, { stopPropagation: () => {} } as any)} />
+      <Sep />
+      <Item icon={<History size={12} />}     label="Show version history" onSelect={() => p.onShowHistory(board.id)} />
+      {showDelete && <Item icon={<Edit3 size={12} />}  label="Rename"          onSelect={() => p.onRename(board)} />}
+      {showDelete && (
+        <div>
+          <div className="px-3 pt-1 pb-0.5 text-[9px] uppercase tracking-wider text-gray-400">Move to</div>
+          <button
+            onClick={(e) => { e.stopPropagation(); p.onMoveToProject(board.id, null); p.onClose(); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px]"
+            style={{ color: '#1f2024' }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Home size={12} className="opacity-70" />
+            <span className="flex-1 text-left">All boards</span>
+            {!board.project_id && <MoveRight size={10} className="text-gray-400" />}
+          </button>
+          {projects.map(pr => (
+            <button
+              key={pr.id}
+              onClick={(e) => { e.stopPropagation(); p.onMoveToProject(board.id, pr.id); p.onClose(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px]"
+              style={{ color: '#1f2024' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <span className="rounded-sm flex-shrink-0" style={{ width: 9, height: 9, background: pr.color }} />
+              <span className="truncate flex-1 text-left">{pr.name}</span>
+              {board.project_id === pr.id && <MoveRight size={10} className="text-gray-400" />}
+            </button>
+          ))}
+        </div>
+      )}
+      {showDelete && (<>
+        <Sep />
+        <Item icon={<Trash2 size={12} />} label="Delete"  danger onSelect={() => p.onDelete(board.id, { stopPropagation: () => {} } as any)} />
+      </>)}
+    </div>
   );
 }
