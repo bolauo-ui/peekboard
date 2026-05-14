@@ -96,7 +96,7 @@ export default function LandingPage() {
               fontWeight: 400,
               fontSize: 'clamp(44px, 4.8vw, 66px)',
               lineHeight: 1.06,
-              letterSpacing: '0em',
+              letterSpacing: '-0.05em',
               color: '#0a0a0a',
               margin: '0 0 20px 0',
             }}>
@@ -111,7 +111,7 @@ export default function LandingPage() {
               fontWeight: 400,
               fontSize: 'clamp(15px, 1.3vw, 17px)',
               lineHeight: 1.65,
-              letterSpacing: '0em',
+              letterSpacing: '-0.03em',
               color: '#444',
               margin: '0 0 32px 0',
             }}>
