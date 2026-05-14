@@ -798,42 +798,19 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const vpt       = canvas.viewportTransform!;
         const activeObj = canvas.getActiveObject();
 
-        // Render Figma-style frame borders + name labels
+        // Render Figma-style frame name labels above each frame
         canvas.getObjects().forEach(obj => {
           if ((obj as any).data?.type !== 'frame') return;
 
-          const fw = (obj.width  ?? 0) * (obj.scaleX ?? 1);
-          const fh = (obj.height ?? 0) * (obj.scaleY ?? 1);
           const sx = (obj.left ?? 0) * zoom + vpt[4];
           const sy = (obj.top  ?? 0) * zoom + vpt[5];
-          const sw = fw * zoom;
-          const sh = fh * zoom;
 
           const isSelected = obj === activeObj;
-          const isHovered  = (obj as any).data?.id === hoveredFrameIdRef.current;
-          const hasFill    = obj.fill
-            && obj.fill !== 'rgba(255,255,255,0)'
-            && obj.fill !== 'transparent'
-            && obj.fill !== '';
 
           ctx.save();
           ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-          // ── Border ──────────────────────────────────────────────────────────
-          if (isSelected) {
-            // Blue solid border when selected (like Figma)
-            ctx.strokeStyle = '#0d99ff';
-            ctx.lineWidth   = 1.5;
-            ctx.strokeRect(sx, sy, sw, sh);
-          } else if (isHovered && !hasFill) {
-            // Blue border on hover when frame has no fill
-            ctx.strokeStyle = '#0d99ff';
-            ctx.lineWidth   = 1;
-            ctx.strokeRect(sx, sy, sw, sh);
-          }
-          // (frames with fill need no border — fill makes them visible)
-
-          // ── Name label above top-left corner (like Figma) ────────────────
+          // ── Name label above top-left corner (like Figma) ─────────────────
           const frameName = (obj as any).data?.frameName ?? 'Frame';
           ctx.font         = '400 11px Inter, system-ui, sans-serif';
           ctx.fillStyle    = isSelected ? '#0d99ff' : 'rgba(160,160,160,0.85)';
@@ -868,21 +845,36 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
       });
 
+      // ── Frame stroke helpers (Figma: blue on hover/select, none otherwise) ──
+      const FRAME_STROKE_ON  = '#0d99ff';
+      const FRAME_STROKE_OFF = 'transparent';
+
+      const setFrameStroke = (obj: fabric.Object | null | undefined, on: boolean) => {
+        if (!obj || (obj as any).data?.type !== 'frame') return;
+        obj.set({ stroke: on ? FRAME_STROKE_ON : FRAME_STROKE_OFF, strokeWidth: on ? 1 : 0, strokeUniform: true } as any);
+      };
+
+      const clearAllFrameStrokes = () => {
+        canvas.getObjects().forEach(o => {
+          if ((o as any).data?.type === 'frame') setFrameStroke(o, false);
+        });
+      };
+
       // ── Frame hover → show blue outline like Figma ────────────────────────
       canvas.on('mouse:over', (e) => {
         const obj = e.target;
-        if ((obj as any)?.data?.type === 'frame') {
+        if ((obj as any)?.data?.type === 'frame' && obj !== canvas.getActiveObject()) {
           hoveredFrameIdRef.current = (obj as any).data?.id ?? null;
+          setFrameStroke(obj, true);
           canvas.requestRenderAll();
         }
       });
       canvas.on('mouse:out', (e) => {
         const obj = e.target;
-        if ((obj as any)?.data?.type === 'frame') {
-          if (hoveredFrameIdRef.current === (obj as any).data?.id) {
-            hoveredFrameIdRef.current = null;
-            canvas.requestRenderAll();
-          }
+        if ((obj as any)?.data?.type === 'frame' && obj !== canvas.getActiveObject()) {
+          hoveredFrameIdRef.current = null;
+          setFrameStroke(obj, false);
+          canvas.requestRenderAll();
         }
       });
 
@@ -892,9 +884,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           framePosRef.current.set((obj as any).data.id, { left: obj.left ?? 0, top: obj.top ?? 0 });
         }
       };
-      canvas.on('selection:created', e => { onObjectSelect(e.selected?.[0] ?? null); trackFramePos(e.selected?.[0]); });
-      canvas.on('selection:updated', e => { onObjectSelect(e.selected?.[0] ?? null); trackFramePos(e.selected?.[0]); });
-      canvas.on('selection:cleared', () => onObjectSelect(null));
+      canvas.on('selection:created', e => {
+        const obj = e.selected?.[0] ?? null;
+        clearAllFrameStrokes();
+        setFrameStroke(obj, true);
+        onObjectSelect(obj); trackFramePos(obj ?? undefined);
+      });
+      canvas.on('selection:updated', e => {
+        e.deselected?.forEach(o => setFrameStroke(o, false));
+        const obj = e.selected?.[0] ?? null;
+        setFrameStroke(obj, true);
+        onObjectSelect(obj); trackFramePos(obj ?? undefined);
+      });
+      canvas.on('selection:cleared', () => {
+        clearAllFrameStrokes();
+        hoveredFrameIdRef.current = null;
+        onObjectSelect(null);
+      });
 
       // ── object:modified — re-parent + sync clip paths ─────────────────────
       canvas.on('object:modified', (e) => {
