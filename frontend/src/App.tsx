@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import LandingPage from '@/pages/LandingPage';
 import Login from '@/pages/Login';
 import Signup from '@/pages/Signup';
 import Dashboard from '@/pages/Dashboard';
@@ -21,11 +22,17 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return !token ? <>{children}</> : <Navigate to="/dashboard" replace />;
 }
 
+// Root: show landing page for visitors, dashboard for signed-in users
+function RootRoute() {
+  const token = useAuthStore((s) => s.token);
+  return token ? <Navigate to="/dashboard" replace /> : <LandingPage />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<RootRoute />} />
         <Route
           path="/login"
           element={<PublicRoute><Login /></PublicRoute>}
