@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { fabric } from 'fabric';
 import {
   Frame, Type, Image as ImageIcon, Film, Video, Layers,
-  Square, Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown,
-  Group, Ungroup,
+  Square, Eye, EyeOff, Lock, Unlock, Group, Ungroup,
+  ChevronRight, ChevronDown,
 } from 'lucide-react';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 export interface LayerInfo {
   id: string;
   obj: fabric.Object;
@@ -17,6 +18,12 @@ export interface LayerInfo {
   frameId?: string;
 }
 
+interface TreeNode {
+  layer: LayerInfo;
+  children: TreeNode[];
+  depth: number;
+}
+
 interface Props {
   canvas: fabric.Canvas | null;
   selectedObject: fabric.Object | null;
@@ -25,15 +32,13 @@ interface Props {
   canEdit: boolean;
 }
 
+// ── Layer info extractor ──────────────────────────────────────────────────────
 function getLayerInfo(obj: fabric.Object, selected: fabric.Object | null, index: number): LayerInfo {
   const data = (obj as any).data ?? {};
   let name = 'Layer';
   let type: LayerInfo['type'] = 'shape';
 
-  // A user-overridden layer name always wins over the type-derived one.
-  if (data.layerName) {
-    name = data.layerName;
-  }
+  if (data.layerName) name = data.layerName;
 
   if (data.type === 'frame' || data.objectType === 'frame') {
     if (!data.layerName) name = data.frameName ?? 'Frame';
@@ -76,71 +81,118 @@ function getLayerInfo(obj: fabric.Object, selected: fabric.Object | null, index:
   };
 }
 
+// ── Build tree from flat canvas object list ───────────────────────────────────
+// Top-of-stack objects appear first (reversed from Fabric's internal array).
+// Children are grouped under their parent frame, preserving stack order within
+// each level.
+function buildTree(objects: fabric.Object[], selectedObj: fabric.Object | null): TreeNode[] {
+  // Reverse so top-of-stack = first in list (Figma convention)
+  const reversed = [...objects].reverse();
+  const allLayers = reversed.map((o, i) => getLayerInfo(o, selectedObj, i));
+
+  const nodeById = new Map<string, TreeNode>();
+  const roots: TreeNode[] = [];
+
+  // First pass — create all nodes
+  allLayers.forEach(layer => {
+    nodeById.set(layer.id, { layer, children: [], depth: 0 });
+  });
+
+  // Second pass — wire children to their parent frame/group
+  allLayers.forEach(layer => {
+    const node = nodeById.get(layer.id)!;
+    const parentId = layer.frameId;
+    if (parentId && nodeById.has(parentId)) {
+      const parent = nodeById.get(parentId)!;
+      node.depth = parent.depth + 1;
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  return roots;
+}
+
+// ── Flatten tree for rendering (respects collapsed state) ─────────────────────
+function flattenTree(
+  nodes: TreeNode[],
+  collapsed: Set<string>,
+  result: Array<TreeNode & { hasChildren: boolean }> = [],
+): Array<TreeNode & { hasChildren: boolean }> {
+  for (const node of nodes) {
+    const hasChildren = node.children.length > 0;
+    result.push({ ...node, hasChildren });
+    if (hasChildren && !collapsed.has(node.layer.id)) {
+      flattenTree(node.children, collapsed, result);
+    }
+  }
+  return result;
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
 const TYPE_ICON: Record<string, React.ReactNode> = {
-  frame:  <Frame   size={11} />,
-  text:   <Type    size={11} />,
+  frame:  <Frame     size={11} />,
+  text:   <Type      size={11} />,
   image:  <ImageIcon size={11} />,
-  gif:    <Film    size={11} />,
-  video:  <Video   size={11} />,
-  group:  <Layers  size={11} />,
+  gif:    <Film      size={11} />,
+  video:  <Video     size={11} />,
+  group:  <Layers    size={11} />,
   svg:    <ImageIcon size={11} />,
-  shape:  <Square  size={11} />,
+  shape:  <Square    size={11} />,
 };
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function LayerPanel({ canvas, selectedObject, onSelect, layerVersion, canEdit }: Props) {
-  const [dragOver, setDragOver] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [editingId,   setEditingId]   = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
+  const [collapsed,    setCollapsed]    = useState<Set<string>>(new Set());
+  const [editingId,    setEditingId]    = useState<string | null>(null);
+  const [editingName,  setEditingName]  = useState('');
+  const [dragging,     setDragging]     = useState<string | null>(null);
+  const [dragOver,     setDragOver]     = useState<string | null>(null);
 
-  // Commit a renamed layer: write to data.layerName (and also data.frameName
-  // for frames so the canvas-rendered label stays in sync) and force the
-  // panel to re-render through the existing layerVersion bus.
+  const toggleCollapse = useCallback((id: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Build tree → flatten for render
+  const flatRows = useMemo(() => {
+    if (!canvas) return [];
+    const objects = canvas.getObjects().filter(
+      o => (o as any).data?.type !== 'frame-preview'
+    );
+    const tree = buildTree(objects, selectedObject);
+    return flattenTree(tree, collapsed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas, selectedObject, layerVersion, collapsed]);
+
+  if (!canvas) return null;
+
+  // ── Commit rename ───────────────────────────────────────────────────────────
   const commitRename = (obj: fabric.Object) => {
     const trimmed = editingName.trim();
     if (trimmed) {
       const data = ((obj as any).data ??= {});
       data.layerName = trimmed;
       if (data.type === 'frame' || data.objectType === 'frame') data.frameName = trimmed;
-      canvas?.fire('object:modified', { target: obj });
-      canvas?.requestRenderAll();
+      canvas.fire('object:modified', { target: obj });
+      canvas.requestRenderAll();
     }
     setEditingId(null);
     setEditingName('');
   };
 
-  const layers = useMemo(() => {
-    if (!canvas) return [] as LayerInfo[];
-    const objs = canvas.getObjects().filter(
-      o => (o as any).data?.type !== 'frame-preview'
-    );
-    return [...objs].reverse().map((o, i) => getLayerInfo(o, selectedObject, i));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas, selectedObject, layerVersion]);
-
-  if (!canvas) return null;
-
-  /* ── helpers ──────────────────────────────────────────────────────────────── */
+  // ── Select ──────────────────────────────────────────────────────────────────
   const selectObj = (obj: fabric.Object) => {
     canvas.setActiveObject(obj);
     canvas.requestRenderAll();
     onSelect(obj);
   };
 
-  const moveUp = (obj: fabric.Object, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!canEdit) return;
-    canvas.bringForward(obj);
-    canvas.requestRenderAll();
-  };
-
-  const moveDown = (obj: fabric.Object, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!canEdit) return;
-    canvas.sendBackwards(obj);
-    canvas.requestRenderAll();
-  };
-
+  // ── Visibility / lock ───────────────────────────────────────────────────────
   const toggleVisible = (obj: fabric.Object, e: React.MouseEvent) => {
     e.stopPropagation();
     (obj as any).visible = !(obj.visible !== false);
@@ -152,10 +204,11 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
     if (!canEdit) return;
     const locked = !obj.selectable;
     obj.selectable = locked;
-    obj.evented     = locked;
+    obj.evented = locked;
     canvas.requestRenderAll();
   };
 
+  // ── Group / ungroup ─────────────────────────────────────────────────────────
   const groupSelected = () => {
     if (!canEdit) return;
     const active = canvas.getActiveObject();
@@ -168,48 +221,36 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
   const ungroupSelected = () => {
     if (!canEdit) return;
     const active = canvas.getActiveObject();
-    if (
-      active instanceof fabric.Group &&
-      !(active instanceof fabric.ActiveSelection)
-    ) {
+    if (active instanceof fabric.Group && !(active instanceof fabric.ActiveSelection)) {
       (active as fabric.Group).toActiveSelection();
       canvas.requestRenderAll();
     }
   };
 
-  /* ── drag-and-drop reorder ──────────────────────────────────────────────── */
-  const handleDragStart = (id: string) => setDragging(id);
-  const handleDragOver  = (e: React.DragEvent, id: string) => {
-    e.preventDefault(); setDragOver(id);
-  };
+  // ── Drag-to-reorder (same-level) ────────────────────────────────────────────
   const handleDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    setDragOver(null); setDragging(null);
+    setDragOver(null);
+    setDragging(null);
     if (!canEdit || !dragging || dragging === targetId) return;
 
-    const srcLayer = layers.find(l => l.id === dragging);
-    const dstLayer = layers.find(l => l.id === targetId);
-    if (!srcLayer || !dstLayer) return;
+    const srcRow = flatRows.find(r => r.layer.id === dragging);
+    const dstRow = flatRows.find(r => r.layer.id === targetId);
+    if (!srcRow || !dstRow) return;
 
-    const objs     = canvas.getObjects();
-    const srcIdx   = objs.indexOf(srcLayer.obj);
-    const dstIdx   = objs.indexOf(dstLayer.obj);
+    const objs   = (canvas as any)._objects as fabric.Object[];
+    const srcIdx = objs.indexOf(srcRow.layer.obj);
+    const dstIdx = objs.indexOf(dstRow.layer.obj);
     if (srcIdx === -1 || dstIdx === -1) return;
 
-    // Remove from current position and insert at target
-    (canvas as any)._objects.splice(srcIdx, 1);
-    const newIdx = (canvas as any)._objects.indexOf(dstLayer.obj);
-    (canvas as any)._objects.splice(
-      srcIdx > dstIdx ? newIdx + 1 : newIdx,
-      0,
-      srcLayer.obj
-    );
+    objs.splice(srcIdx, 1);
+    const newDst = objs.indexOf(dstRow.layer.obj);
+    objs.splice(srcIdx > dstIdx ? newDst + 1 : newDst, 0, srcRow.layer.obj);
     canvas.requestRenderAll();
   };
 
-  const isGroup  = selectedObject instanceof fabric.Group &&
-                   !(selectedObject instanceof fabric.ActiveSelection);
-  const isMulti  = selectedObject instanceof fabric.ActiveSelection;
+  const isGroup = selectedObject instanceof fabric.Group && !(selectedObject instanceof fabric.ActiveSelection);
+  const isMulti = selectedObject instanceof fabric.ActiveSelection;
 
   return (
     <aside
@@ -222,22 +263,12 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
         {canEdit && (
           <div className="flex gap-1">
             {isMulti && (
-              <button
-                onClick={groupSelected}
-                title="Group selected (Ctrl+G)"
-                className="toolbar-btn"
-                style={{ width: 22, height: 22, padding: 0 }}
-              >
+              <button onClick={groupSelected} title="Group selected" className="toolbar-btn" style={{ width: 22, height: 22, padding: 0 }}>
                 <Group size={11} />
               </button>
             )}
             {isGroup && (
-              <button
-                onClick={ungroupSelected}
-                title="Ungroup"
-                className="toolbar-btn"
-                style={{ width: 22, height: 22, padding: 0 }}
-              >
+              <button onClick={ungroupSelected} title="Ungroup" className="toolbar-btn" style={{ width: 22, height: 22, padding: 0 }}>
                 <Ungroup size={11} />
               </button>
             )}
@@ -245,103 +276,114 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
         )}
       </div>
 
-      {/* Layer list */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-px">
-        {layers.length === 0 ? (
+      {/* Tree */}
+      <div className="flex-1 overflow-y-auto pb-3 space-y-px" style={{ paddingLeft: 4, paddingRight: 4 }}>
+        {flatRows.length === 0 ? (
           <p className="text-xs text-center pt-6" style={{ color: 'var(--text-muted)' }}>
             No layers yet
           </p>
         ) : (
-          layers.map(layer => (
-            <div
-              key={layer.id}
-              draggable={canEdit}
-              onDragStart={() => handleDragStart(layer.id)}
-              onDragOver={e => handleDragOver(e, layer.id)}
-              onDrop={e => handleDrop(e, layer.id)}
-              onDragEnd={() => { setDragging(null); setDragOver(null); }}
-              onClick={() => selectObj(layer.obj)}
-              className="flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer group select-none"
-              style={{
-                background: layer.isSelected
-                  ? 'rgba(123,104,238,0.2)'
-                  : dragOver === layer.id
-                  ? 'rgba(123,104,238,0.1)'
-                  : 'transparent',
-                opacity:  layer.visible ? 1 : 0.45,
-                paddingLeft: layer.frameId ? 16 : undefined,
-              }}
-            >
-              {/* Type icon */}
-              <span style={{ color: layer.isSelected ? '#a89cf7' : 'var(--text-muted)', flexShrink: 0 }}>
-                {TYPE_ICON[layer.type]}
-              </span>
+          flatRows.map(row => {
+            const { layer, depth, hasChildren } = row;
+            const isCollapsed = collapsed.has(layer.id);
+            const indent = depth * 12;
 
-              {/* Name (double-click to rename inline) */}
-              {editingId === layer.id ? (
-                <input
-                  autoFocus
-                  value={editingName}
-                  onChange={(e) => setEditingName(e.target.value)}
-                  onBlur={() => commitRename(layer.obj)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Enter')  commitRename(layer.obj);
-                    if (e.key === 'Escape') { setEditingId(null); setEditingName(''); }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex-1 text-xs rounded px-1 py-0.5 outline-none"
-                  style={{
-                    background:  'var(--bg-input)',
-                    color:       'var(--text-primary)',
-                    border:      '1px solid var(--accent)',
-                  }}
-                />
-              ) : (
+            return (
+              <div
+                key={layer.id}
+                draggable={canEdit}
+                onDragStart={() => setDragging(layer.id)}
+                onDragOver={e => { e.preventDefault(); setDragOver(layer.id); }}
+                onDrop={e => handleDrop(e, layer.id)}
+                onDragEnd={() => { setDragging(null); setDragOver(null); }}
+                onClick={() => selectObj(layer.obj)}
+                className="flex items-center gap-1 py-[3px] rounded cursor-pointer group select-none"
+                style={{
+                  paddingLeft: 4 + indent,
+                  paddingRight: 4,
+                  background: layer.isSelected
+                    ? 'rgba(123,104,238,0.2)'
+                    : dragOver === layer.id
+                    ? 'rgba(123,104,238,0.1)'
+                    : 'transparent',
+                  opacity: layer.visible ? 1 : 0.4,
+                }}
+              >
+                {/* Collapse chevron — only for frames/groups with children */}
                 <span
-                  className="flex-1 text-xs truncate"
-                  style={{ color: layer.isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-                  onDoubleClick={(e) => {
-                    if (!canEdit) return;
+                  className="flex items-center justify-center flex-shrink-0"
+                  style={{ width: 14, height: 14, color: 'var(--text-muted)' }}
+                  onClick={e => {
+                    if (!hasChildren) return;
                     e.stopPropagation();
-                    setEditingId(layer.id);
-                    setEditingName(layer.name);
+                    toggleCollapse(layer.id);
                   }}
-                  title={canEdit ? 'Double-click to rename' : undefined}
                 >
-                  {layer.name}
+                  {hasChildren
+                    ? (isCollapsed
+                        ? <ChevronRight size={10} />
+                        : <ChevronDown  size={10} />)
+                    : null}
                 </span>
-              )}
 
-              {/* Action buttons — always visible on selected, hover otherwise */}
-              <div className={`flex items-center gap-0.5 ${layer.isSelected ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                {canEdit && (
-                  <>
-                    <IconBtn title="Move up"   onClick={e => moveUp(layer.obj, e)}>
-                      <ChevronUp size={9} />
-                    </IconBtn>
-                    <IconBtn title="Move down" onClick={e => moveDown(layer.obj, e)}>
-                      <ChevronDown size={9} />
-                    </IconBtn>
-                  </>
+                {/* Type icon */}
+                <span style={{ color: layer.isSelected ? '#a89cf7' : 'var(--text-muted)', flexShrink: 0 }}>
+                  {TYPE_ICON[layer.type]}
+                </span>
+
+                {/* Name — double-click to rename */}
+                {editingId === layer.id ? (
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onChange={e => setEditingName(e.target.value)}
+                    onBlur={() => commitRename(layer.obj)}
+                    onKeyDown={e => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter')  commitRename(layer.obj);
+                      if (e.key === 'Escape') { setEditingId(null); setEditingName(''); }
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    className="flex-1 text-xs rounded px-1 py-0.5 outline-none min-w-0"
+                    style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--accent)' }}
+                  />
+                ) : (
+                  <span
+                    className="flex-1 text-xs truncate min-w-0"
+                    style={{ color: layer.isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+                    onDoubleClick={e => {
+                      if (!canEdit) return;
+                      e.stopPropagation();
+                      setEditingId(layer.id);
+                      setEditingName(layer.name);
+                    }}
+                    title={layer.name}
+                  >
+                    {layer.name}
+                  </span>
                 )}
-                <IconBtn title={layer.visible ? 'Hide' : 'Show'} onClick={e => toggleVisible(layer.obj, e)}>
-                  {layer.visible ? <Eye size={10} /> : <EyeOff size={10} />}
-                </IconBtn>
-                {canEdit && (
-                  <IconBtn title={layer.locked ? 'Unlock' : 'Lock'} onClick={e => toggleLock(layer.obj, e)}>
-                    {layer.locked ? <Lock size={10} /> : <Unlock size={10} />}
+
+                {/* Action buttons */}
+                <div className={`flex items-center gap-0.5 flex-shrink-0 ${layer.isSelected ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                  <IconBtn title={layer.visible ? 'Hide' : 'Show'} onClick={e => toggleVisible(layer.obj, e)}>
+                    {layer.visible ? <Eye size={10} /> : <EyeOff size={10} />}
                   </IconBtn>
-                )}
+                  {canEdit && (
+                    <IconBtn title={layer.locked ? 'Unlock' : 'Lock'} onClick={e => toggleLock(layer.obj, e)}>
+                      {layer.locked ? <Lock size={10} /> : <Unlock size={10} />}
+                    </IconBtn>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </aside>
   );
 }
 
+// ── Icon button ───────────────────────────────────────────────────────────────
 function IconBtn({ children, onClick, title }: {
   children: React.ReactNode;
   onClick: (e: React.MouseEvent) => void;
@@ -352,14 +394,7 @@ function IconBtn({ children, onClick, title }: {
       title={title}
       onClick={onClick}
       className="flex items-center justify-center rounded"
-      style={{
-        width: 16, height: 16,
-        color: 'var(--text-muted)',
-        background: 'transparent',
-        border: 'none',
-        cursor: 'pointer',
-        flexShrink: 0,
-      }}
+      style={{ width: 16, height: 16, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
       onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
       onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
     >
