@@ -98,6 +98,7 @@ export default function CommentsOverlay({
   // ── Pin + popover state ───────────────────────────────────────────────────
   // openPinId is controlled from the parent so the sidebar can also drive it.
   const [pending, setPending] = useState<{ x: number; y: number } | null>(null);
+  const pendingTextRef = useRef('');   // tracks typed text so backdrop can check before cancelling
   const setOpenPinId = onOpenPin;
 
   // When the sidebar opens a pin that's off-screen, gently pan the viewport
@@ -176,6 +177,24 @@ export default function CommentsOverlay({
       className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 20 }}
     >
+      {/* Click-outside backdrop — rendered first (lowest in stack) so pins
+          and popovers above it still receive clicks. When the board is clicked
+          while a popover is open:
+            • pending pin with no text  → dismiss (Figma behaviour)
+            • pending pin WITH text     → keep open (don't lose work)
+            • open thread popover       → close it
+          Matches Figma's "click anywhere to dismiss" behaviour. */}
+      {(pending || openPinId) && (
+        <div
+          className="absolute inset-0 pointer-events-auto"
+          style={{ zIndex: 38 }}
+          onMouseDown={() => {
+            if (pending && !pendingTextRef.current.trim()) setPending(null);
+            setOpenPinId(null);
+          }}
+        />
+      )}
+
       {/* Existing pins */}
       {visiblePins.map(c => {
         const pos = project(c.x, c.y);
@@ -236,8 +255,10 @@ export default function CommentsOverlay({
           overlayRef={overlayRef}
           currentUser={currentUser}
           members={members}
-          onCancel={() => setPending(null)}
+          onTextChange={t => { pendingTextRef.current = t; }}
+          onCancel={() => { pendingTextRef.current = ''; setPending(null); }}
           onSubmit={async (text) => {
+            pendingTextRef.current = '';
             const c = await onAddComment(pending.x, pending.y, text);
             setPending(null);
             if (c) setOpenPinId(c.id);
@@ -272,7 +293,7 @@ function PinDot({ avatarInitial, avatarColor, authorName, previewText, resolved,
   return (
     <div
       className="absolute pointer-events-auto"
-      style={{ left, top, transform: 'translate(-50%, -100%)' }}
+      style={{ left, top, transform: 'translate(-50%, -100%)', zIndex: 39 }}
     >
       <button
         onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -413,8 +434,9 @@ interface NewProps {
   members: BoardMemberLite[];
   onCancel: () => void;
   onSubmit: (text: string) => void | Promise<void>;
+  onTextChange?: (text: string) => void;
 }
-function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel, onSubmit }: NewProps) {
+function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel, onSubmit, onTextChange }: NewProps) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -429,13 +451,18 @@ function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel,
   const pos = usePopoverPosition(anchor, overlayRef, size);
   const expanded = focused || text.length > 0;
 
+  const updateText = (v: string) => {
+    setText(v);
+    onTextChange?.(v);
+  };
+
   const submit = async () => {
     const t = text.trim();
     if (!t) return;
     await onSubmit(t);
   };
 
-  // Esc dismisses the empty pending pin.
+  // Esc dismisses the pending pin.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
@@ -449,13 +476,14 @@ function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel,
       ref={popRef}
       className="absolute pointer-events-auto"
       style={{ left: pos.left, top: pos.top, width: 380, zIndex: 40 }}
+      onMouseDown={e => e.stopPropagation()} // prevent backdrop from firing when clicking inside
     >
       <LightCard className={expanded ? 'p-3' : 'px-3 py-2'}>
         {expanded ? (
           <CommentComposer
             textareaRef={taRef}
             value={text}
-            onChange={setText}
+            onChange={updateText}
             members={members}
             placeholder="Add a comment…"
             onSubmit={submit}
@@ -470,7 +498,7 @@ function NewCommentPopover({ anchor, overlayRef, currentUser, members, onCancel,
               ref={taRef}
               rows={1}
               value={text}
-              onChange={e => setText(e.target.value)}
+              onChange={e => updateText(e.target.value)}
               onFocus={() => setFocused(true)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
@@ -544,6 +572,7 @@ function ThreadPopover({
       ref={popRef}
       className="absolute pointer-events-auto"
       style={{ left: pos.left, top: pos.top, width: 380, zIndex: 40 }}
+      onMouseDown={e => e.stopPropagation()} // prevent backdrop from closing thread on inside-click
     >
       <LightCard>
         {/* Header bar */}
