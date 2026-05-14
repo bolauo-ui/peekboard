@@ -647,14 +647,20 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
         if (tool === 'text' && !opt.target && canEditRef.current) {
           const ptr  = canvas.getPointer(opt.e);
-          const text = new fabric.IText('Type here', {
+          // Scale font so it always appears ~20px tall on screen regardless of zoom.
+          const zoom     = canvas.getZoom();
+          const fontSize = Math.max(12, Math.round(20 / zoom));
+          const text = new fabric.IText('', {
             left: ptr.x, top: ptr.y,
-            fontFamily: 'Inter, sans-serif', fontSize: 32,
-            fill: '#ffffff', fontWeight: '600', editable: true,
+            fontFamily: 'Inter, sans-serif', fontSize,
+            fill: '#1a1a1a', fontWeight: '400', editable: true,
             data: { id: uuidv4(), objectType: 'text' },
           } as any);
-          canvas.add(text); canvas.setActiveObject(text);
-          text.enterEditing(); text.selectAll();
+          canvas.add(text);
+          canvas.setActiveObject(text);
+          onToolChangeRef.current?.('select');  // exit text tool, stay in edit
+          text.enterEditing();
+          (text as any).hiddenTextarea?.focus();
           canvas.renderAll(); scheduleRef.current(); pushHistory();
         }
       });
@@ -1298,17 +1304,19 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     };
 
     const addTextAtCenter = (canvas: fabric.Canvas) => {
-      const vpt = canvas.viewportTransform!;
-      const cx  = (canvas.width!  / 2 - vpt[4]) / vpt[0];
-      const cy  = (canvas.height! / 2 - vpt[5]) / vpt[3];
-      const t   = new fabric.IText('Add text', {
-        left: cx - 50, top: cy - 20,
-        fontFamily: 'Inter, sans-serif', fontSize: 32,
-        fill: '#1a1a1a', fontWeight: '600',
+      const vpt      = canvas.viewportTransform!;
+      const zoom     = canvas.getZoom();
+      const cx       = (canvas.width!  / 2 - vpt[4]) / zoom;
+      const cy       = (canvas.height! / 2 - vpt[5]) / zoom;
+      const fontSize = Math.max(12, Math.round(20 / zoom));
+      const t   = new fabric.IText('', {
+        left: cx, top: cy,
+        fontFamily: 'Inter, sans-serif', fontSize,
+        fill: '#1a1a1a', fontWeight: '400',
         data: { id: uuidv4(), objectType: 'text' },
       } as any);
       canvas.add(t); canvas.setActiveObject(t);
-      t.enterEditing(); t.selectAll();
+      t.enterEditing(); (t as any).hiddenTextarea?.focus();
       canvas.renderAll(); scheduleRef.current(); pushHistory();
     };
 

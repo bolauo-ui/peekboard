@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fabric } from 'fabric';
-import { Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Trash2, ChevronUp, ChevronDown, LayoutGrid, ArrowRight, ArrowDown } from 'lucide-react';
+import { Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, Trash2, ChevronUp, ChevronDown, LayoutGrid, ArrowRight, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical } from 'lucide-react';
 import FontPicker from '@/components/canvas/FontPicker';
 import {
   applyAutoLayout, unlockChildren, getAutoLayout, setAutoLayout,
@@ -25,13 +25,15 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
                 || (selectedObject as any)?.data?.type === 'frame';
   const isSvg   = (selectedObject as any)?.data?.objectType === 'svg';
 
-  const [fontFamily, setFontFamily] = useState('Inter');
-  const [fontSize,   setFontSize]   = useState(32);
-  const [fill,       setFill]       = useState('#ffffff');
-  const [fontWeight, setFontWeight] = useState('normal');
-  const [fontStyle,  setFontStyle]  = useState('normal');
-  const [underline,  setUnderline]  = useState(false);
-  const [textAlign,  setTextAlign]  = useState<'left'|'center'|'right'>('left');
+  const [fontFamily,    setFontFamily]    = useState('Inter');
+  const [fontSize,      setFontSize]      = useState(20);
+  const [fill,          setFill]          = useState('#1a1a1a');
+  const [fontWeight,    setFontWeight]    = useState('400');
+  const [fontStyle,     setFontStyle]     = useState('normal');
+  const [underline,     setUnderline]     = useState(false);
+  const [textAlign,     setTextAlign]     = useState<'left'|'center'|'right'>('left');
+  const [lineHeight,    setLineHeight]    = useState(1.2);
+  const [charSpacing,   setCharSpacing]   = useState(0);  // Fabric unit = 1/1000 em
   const [opacity,    setOpacity]    = useState(100);
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
@@ -54,13 +56,15 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
     setObjW(Math.round(o.getScaledWidth?.()  ?? 0));
     setObjH(Math.round(o.getScaledHeight?.() ?? 0));
     if (isText) {
-      setFontFamily(o.fontFamily ?? 'Inter');
-      setFontSize(o.fontSize    ?? 32);
-      setFill(o.fill            ?? '#ffffff');
-      setFontWeight(o.fontWeight ?? 'normal');
-      setFontStyle(o.fontStyle  ?? 'normal');
-      setUnderline(o.underline  ?? false);
-      setTextAlign(o.textAlign  ?? 'left');
+      setFontFamily(o.fontFamily  ?? 'Inter');
+      setFontSize(o.fontSize      ?? 20);
+      setFill(o.fill              ?? '#1a1a1a');
+      setFontWeight(String(o.fontWeight ?? '400'));
+      setFontStyle(o.fontStyle    ?? 'normal');
+      setUnderline(o.underline    ?? false);
+      setTextAlign(o.textAlign    ?? 'left');
+      setLineHeight(o.lineHeight  ?? 1.2);
+      setCharSpacing(o.charSpacing ?? 0);
     }
     if (isFrame) {
       setFrameName(o.data?.frameName ?? 'Frame');
@@ -179,61 +183,104 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
             <div className="panel-section">
               <SectionHeader>Typography</SectionHeader>
 
-              <div className="mb-2">
-                <FontPicker
-                  value={fontFamily}
-                  disabled={!canEdit}
-                  onChange={(v) => { setFontFamily(v); apply({ fontFamily: v }); }}
-                />
+              {/* Font family */}
+              <div className="mb-1.5">
+                <FontPicker value={fontFamily} disabled={!canEdit}
+                  onChange={v => { setFontFamily(v); apply({ fontFamily: v }); }} />
               </div>
 
-              <div className="flex gap-1.5 mb-2">
+              {/* Weight + Style row */}
+              <div className="flex gap-1.5 mb-1.5">
                 <div className="flex-1">
-                  <span className="panel-label">Size</span>
-                  <input type="number" value={fontSize} min={6} max={400}
-                    onChange={e => { const v = parseInt(e.target.value)||12; setFontSize(v); apply({ fontSize: v }); }}
-                    disabled={!canEdit} className="panel-input" />
-                </div>
-                <div style={{ width: 36 }}>
-                  <span className="panel-label">Colour</span>
-                  <input type="color" value={fill}
-                    onChange={e => { setFill(e.target.value); apply({ fill: e.target.value }); }}
+                  <select
+                    value={fontWeight}
                     disabled={!canEdit}
-                    className="color-swatch"
-                    style={{ height: 28 }}
-                  />
+                    onChange={e => {
+                      const v = e.target.value;
+                      setFontWeight(v);
+                      // Map numeric weight to bold/normal for Fabric
+                      apply({ fontWeight: v });
+                    }}
+                    className="panel-input text-xs"
+                    style={{ width: '100%' }}
+                  >
+                    {[['100','Thin'],['200','ExtraLight'],['300','Light'],
+                      ['400','Regular'],['500','Medium'],['600','SemiBold'],
+                      ['700','Bold'],['800','ExtraBold'],['900','Black']
+                    ].map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* Size */}
+                <div style={{ width: 60 }}>
+                  <input type="number" value={fontSize} min={6} max={800}
+                    onChange={e => { const v = parseInt(e.target.value)||12; setFontSize(v); apply({ fontSize: v }); }}
+                    disabled={!canEdit} className="panel-input text-xs text-center" />
                 </div>
               </div>
 
-              {/* B / I / U */}
-              <div className="flex gap-1 mb-2">
-                <StyleBtn active={fontWeight === 'bold'} disabled={!canEdit}
-                  onClick={() => { const v = fontWeight==='bold'?'normal':'bold'; setFontWeight(v); apply({ fontWeight: v }); }}>
-                  <Bold size={12} />
-                </StyleBtn>
-                <StyleBtn active={fontStyle === 'italic'} disabled={!canEdit}
-                  onClick={() => { const v = fontStyle==='italic'?'normal':'italic'; setFontStyle(v); apply({ fontStyle: v }); }}>
-                  <Italic size={12} />
-                </StyleBtn>
-                <StyleBtn active={underline} disabled={!canEdit}
-                  onClick={() => { setUnderline(!underline); apply({ underline: !underline }); }}>
-                  <Underline size={12} />
-                </StyleBtn>
+              {/* Line height + Letter spacing */}
+              <div className="flex gap-1.5 mb-1.5">
+                <div className="flex-1">
+                  <span className="panel-label">Line height</span>
+                  <div className="flex items-center gap-1">
+                    <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>↕</span>
+                    <input type="number" value={lineHeight} min={0.5} max={5} step={0.1}
+                      onChange={e => { const v = parseFloat(e.target.value)||1.2; setLineHeight(v); apply({ lineHeight: v }); }}
+                      disabled={!canEdit} className="panel-input text-xs flex-1" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <span className="panel-label">Letter spacing</span>
+                  <div className="flex items-center gap-1">
+                    <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>↔</span>
+                    <input type="number" value={Math.round(charSpacing / 10)} min={-200} max={800} step={1}
+                      onChange={e => {
+                        const pct = parseInt(e.target.value)||0;
+                        const cs  = pct * 10;   // Fabric charSpacing = 1/1000 em; 10 = 1%
+                        setCharSpacing(cs); apply({ charSpacing: cs });
+                      }}
+                      disabled={!canEdit} className="panel-input text-xs flex-1" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Colour + B / I / U */}
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <input type="color" value={fill}
+                  onChange={e => { setFill(e.target.value); apply({ fill: e.target.value }); }}
+                  disabled={!canEdit} className="color-swatch flex-shrink-0" style={{ height: 28, width: 36 }} />
+                <div className="flex gap-1 flex-1">
+                  <StyleBtn active={['700','800','900','bold'].includes(fontWeight)} disabled={!canEdit}
+                    onClick={() => {
+                      const isBold = ['700','800','900','bold'].includes(fontWeight);
+                      const v = isBold ? '400' : '700';
+                      setFontWeight(v); apply({ fontWeight: v });
+                    }}>
+                    <Bold size={12} />
+                  </StyleBtn>
+                  <StyleBtn active={fontStyle === 'italic'} disabled={!canEdit}
+                    onClick={() => { const v = fontStyle==='italic'?'normal':'italic'; setFontStyle(v); apply({ fontStyle: v }); }}>
+                    <Italic size={12} />
+                  </StyleBtn>
+                  <StyleBtn active={underline} disabled={!canEdit}
+                    onClick={() => { setUnderline(!underline); apply({ underline: !underline }); }}>
+                    <Underline size={12} />
+                  </StyleBtn>
+                </div>
               </div>
 
               {/* Alignment */}
-              <div>
-                <span className="panel-label">Align</span>
-                <div className="flex gap-1">
-                  {(['left','center','right'] as const).map(a => (
-                    <StyleBtn key={a} active={textAlign===a} disabled={!canEdit}
-                      onClick={() => { setTextAlign(a); apply({ textAlign: a }); }}>
-                      {a==='left' && <AlignLeft size={12} />}
-                      {a==='center' && <AlignCenter size={12} />}
-                      {a==='right' && <AlignRight size={12} />}
-                    </StyleBtn>
-                  ))}
-                </div>
+              <div className="flex gap-1">
+                {(['left','center','right'] as const).map(a => (
+                  <StyleBtn key={a} active={textAlign===a} disabled={!canEdit}
+                    onClick={() => { setTextAlign(a); apply({ textAlign: a }); }}>
+                    {a==='left'   && <AlignLeft   size={12} />}
+                    {a==='center' && <AlignCenter size={12} />}
+                    {a==='right'  && <AlignRight  size={12} />}
+                  </StyleBtn>
+                ))}
               </div>
             </div>
           )}

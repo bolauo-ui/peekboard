@@ -4,7 +4,7 @@
     {
       "name": "motionboard-frontend",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "eval \"$(/opt/workbrew/bin/brew shellenv)\" && export PATH=\"/opt/homebrew/bin:$PATH\" && cd frontend && npx vite --port 5173"],
+      "runtimeArgs": ["-c", "eval \"$(/opt/workbrew/bin/brew shellenv)\" && export PATH=\"/opt/homebrew/bin:$PATH\" && cd \"/Users/omobolanlebanwo/Desktop/Claude code/frontend\" && npx vite --port 5173"],
       "port": 5173
     }
   ]
