@@ -94,7 +94,7 @@ export default function LandingPage() {
             <h1 style={{
               fontFamily: '"Crimson Pro", Georgia, serif',
               fontWeight: 400,
-              fontSize: 'clamp(44px, 4.8vw, 66px)',
+              fontSize: 78,
               lineHeight: 0.81,
               letterSpacing: '-0.05em',
               color: '#0a0a0a',
