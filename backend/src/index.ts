@@ -1337,6 +1337,130 @@ app.post('/api/boards/:id/move',
   }
 );
 
+// ── LinkedIn Ad Scorer ────────────────────────────────────────────────────────
+// Accepts a base64 canvas screenshot and returns a structured score using
+// Claude Vision + published LinkedIn performance benchmarks.
+app.post('/api/analyse/linkedin', authenticate, async (req: any, res) => {
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+  if (!ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured on this server.' });
+    return;
+  }
+
+  const { image } = req.body as { image?: string };
+  if (!image || !image.startsWith('data:image/')) {
+    res.status(400).json({ error: 'image must be a base64 data URL' });
+    return;
+  }
+
+  // Strip the data URL header to get raw base64 + media type
+  const match = image.match(/^data:(image\/[a-z]+);base64,(.+)$/);
+  if (!match) { res.status(400).json({ error: 'Invalid image format' }); return; }
+  const [, mediaType, base64Data] = match;
+
+  const prompt = `You are a LinkedIn ad performance expert. Analyse this image creative and score it against proven LinkedIn performance benchmarks. Return ONLY valid JSON — no markdown, no prose.
+
+Score each category strictly (don't be generous):
+
+{
+  "overall": <0-100 integer>,
+  "grade": <"A"|"B"|"C"|"D"|"F">,
+  "verdict": "<2 sentence summary of the creative's LinkedIn potential>",
+  "categories": [
+    {
+      "name": "Human Presence",
+      "score": <0-20>,
+      "max": 20,
+      "benchmark": "Posts with a face get 3× more engagement on LinkedIn",
+      "note": "<specific observation about this image>"
+    },
+    {
+      "name": "Visual Clarity",
+      "score": <0-20>,
+      "max": 20,
+      "benchmark": "Clear focal point and strong contrast increase scroll-stop rate by 47%",
+      "note": "<specific observation>"
+    },
+    {
+      "name": "Text Density",
+      "score": <0-15>,
+      "max": 15,
+      "benchmark": "Images with under 20% text area outperform heavy-text creatives by 2.3×",
+      "note": "<estimate the % of image covered by text and comment>"
+    },
+    {
+      "name": "Composition & Format",
+      "score": <0-15>,
+      "max": 15,
+      "benchmark": "1200×628px (1.91:1) or 1:1 square are optimal LinkedIn feed formats",
+      "note": "<comment on composition, whitespace, visual balance>"
+    },
+    {
+      "name": "Call to Action",
+      "score": <0-15>,
+      "max": 15,
+      "benchmark": "Creatives with a visible CTA see 2× higher click-through rates",
+      "note": "<is there a visible CTA? what is it?>"
+    },
+    {
+      "name": "Brand & Professionalism",
+      "score": <0-15>,
+      "max": 15,
+      "benchmark": "Consistent brand colours and professional quality build trust and recall",
+      "note": "<comment on brand elements, quality, professional feel>"
+    }
+  ],
+  "suggestions": [
+    "<most impactful specific improvement>",
+    "<second improvement>",
+    "<third improvement>"
+  ]
+}`;
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key':         ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text',  text: prompt },
+          ],
+        }],
+      }),
+    });
+
+    if (!r.ok) {
+      const body = await r.text();
+      console.warn('[linkedin-score] Anthropic error', r.status, body);
+      res.status(502).json({ error: 'AI analysis failed', detail: `${r.status}` });
+      return;
+    }
+
+    const data = await r.json() as any;
+    const raw = data?.content?.[0]?.text ?? '';
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd   = raw.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) {
+      res.status(502).json({ error: 'Unexpected AI response format' });
+      return;
+    }
+    const result = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+    res.json(result);
+  } catch (err: any) {
+    console.error('[linkedin-score] error', err);
+    res.status(500).json({ error: 'Analysis failed', detail: String(err?.message ?? err) });
+  }
+});
+
 app.use((err: Error, _req: any, res: any, _next: any) => {
   console.error(err);
   res.status(500).json({ error: err.message || 'Internal server error' });

@@ -224,6 +224,26 @@ export const commentsApi = {
     http.delete<{ success: boolean }>(`/comments/${commentId}`).then((r) => r.data),
 };
 
+// ── LinkedIn Ad Scorer ────────────────────────────────────────────────────────
+export interface LinkedInScoreCategory {
+  name:      string;
+  score:     number;
+  max:       number;
+  benchmark: string;
+  note:      string;
+}
+export interface LinkedInScore {
+  overall:    number;
+  grade:      string;
+  verdict:    string;
+  categories: LinkedInScoreCategory[];
+  suggestions: string[];
+}
+export const analyseApi = {
+  linkedin: (image: string) =>
+    http.post<LinkedInScore>('/analyse/linkedin', { image }).then(r => r.data),
+};
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 export const uploadApi = {
   upload: (file: File, onProgress?: (pct: number) => void) => {

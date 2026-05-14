@@ -16,7 +16,8 @@ import ZoomControl from '@/components/canvas/ZoomControl';
 import ContextMenu from '@/components/canvas/ContextMenu';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 import VersionHistoryDrawer from '@/components/VersionHistoryDrawer';
-import { History } from 'lucide-react';
+import LinkedInScorePanel from '@/components/LinkedInScorePanel';
+import { History, Linkedin } from 'lucide-react';
 import { setFaviconDot } from '@/lib/favicon';
 
 export default function Board() {
@@ -36,6 +37,7 @@ export default function Board() {
 
   const [showShare,    setShowShare]    = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showLinkedIn, setShowLinkedIn] = useState(false);
   const [showProps,    setShowProps]    = useState(true);
   // Open the history drawer automatically when arriving via the dashboard
   // kebab's "Show version history" deep-link (`?history=1`).
@@ -464,6 +466,20 @@ export default function Board() {
             <History size={12} />
             History
           </button>
+          <button
+            onClick={() => setShowLinkedIn(!showLinkedIn)}
+            title="LinkedIn ad score"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
+            style={{
+              background: showLinkedIn ? 'rgba(10,102,194,0.2)' : 'transparent',
+              color:      showLinkedIn ? '#60a5fa' : 'var(--text-secondary)',
+            }}
+            onMouseEnter={e => { if (!showLinkedIn) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!showLinkedIn) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <Linkedin size={12} />
+            LinkedIn
+          </button>
 
           {board.role === 'owner' && (
             <button
@@ -593,6 +609,20 @@ export default function Board() {
             onOpenPin={setOpenPinId}
             openPinId={openPinId}
           />
+        )}
+
+        {showLinkedIn && (
+          <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden" style={{ borderLeft: '1px solid var(--border)' }}>
+            <LinkedInScorePanel
+              onClose={() => setShowLinkedIn(false)}
+              getSnapshot={() => {
+                if (!canvas) return null;
+                try {
+                  return canvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 0.5 });
+                } catch { return null; }
+              }}
+            />
+          </div>
         )}
 
         {showHistory && board && (
