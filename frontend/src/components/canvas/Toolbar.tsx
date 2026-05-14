@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame } from 'lucide-react';
+import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers } from 'lucide-react';
 import type { Tool } from '@/types';
 import { uploadApi } from '@/lib/api';
 
@@ -12,6 +12,11 @@ interface Props {
   role: string;
   boardName: string;
   onBack: () => void;
+  // New: surface save status + layers toggle + share in toolbar
+  saveStatus?: 'saved' | 'saving' | 'unsaved';
+  showLayers?: boolean;
+  onToggleLayers?: () => void;
+  onShare?: () => void;
 }
 
 const TOOLS: { id: Tool; icon: React.ReactNode; label: string }[] = [
@@ -34,6 +39,7 @@ const ROLE_TEXT: Record<string, string> = {
 
 export default function Toolbar({
   activeTool, onToolChange, onAddText, onMediaAdded, onExport, role, boardName, onBack,
+  saveStatus, showLayers, onToggleLayers, onShare,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadingRef = useRef(false);
@@ -91,6 +97,19 @@ export default function Toolbar({
         <span className="max-w-[140px] truncate">{boardName}</span>
       </button>
 
+      {/* Layers toggle */}
+      {onToggleLayers && (
+        <button
+          title="Toggle layers"
+          onClick={onToggleLayers}
+          className="toolbar-btn"
+          style={{ color: showLayers ? 'var(--accent)' : undefined,
+                   background: showLayers ? 'rgba(123,104,238,0.15)' : undefined }}
+        >
+          <Layers size={15} />
+        </button>
+      )}
+
       <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--border)' }} />
 
       {/* Tool group */}
@@ -138,9 +157,20 @@ export default function Toolbar({
 
       <div className="flex-1" />
 
+      {/* Save status */}
+      {saveStatus && (
+        <span className="text-xs font-medium mr-1 flex-shrink-0" style={{
+          color: saveStatus === 'saved' ? '#34d399' : saveStatus === 'saving' ? '#fbbf24' : '#f05252'
+        }}>
+          {saveStatus === 'saved'   && '✓ Saved'}
+          {saveStatus === 'saving'  && '● Saving…'}
+          {saveStatus === 'unsaved' && '✕ Failed'}
+        </span>
+      )}
+
       {/* Role badge */}
       <span
-        className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize"
+        className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize flex-shrink-0"
         style={{ background: ROLE_COLOR[role] ?? 'var(--bg-hover)', color: ROLE_TEXT[role] ?? '#888' }}
       >
         {role}
@@ -152,7 +182,7 @@ export default function Toolbar({
       <button
         title="Export frame as PNG"
         onClick={onExport}
-        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
         style={{ color: 'var(--text-secondary)' }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
@@ -160,6 +190,23 @@ export default function Toolbar({
         <Download size={13} />
         Export
       </button>
+
+      {/* Share */}
+      {onShare && role === 'owner' && (
+        <>
+          <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--border)' }} />
+          <button
+            onClick={onShare}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md font-semibold text-white transition-colors flex-shrink-0"
+            style={{ background: 'var(--accent)' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
+          >
+            <Users size={13} />
+            Share
+          </button>
+        </>
+      )}
     </div>
   );
 }

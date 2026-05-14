@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import type React from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { fabric } from 'fabric';
-import { Users, MessageSquare, ChevronRight, ChevronLeft } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import { boardsApi, uploadApi, commentsApi, sharingApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { Board as BoardType, CanvasData, Tool, Comment } from '@/types';
@@ -399,7 +400,7 @@ export default function Board() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-toolbar)' }}>
-      {/* Top toolbar */}
+      {/* Top toolbar — now includes save status, layers toggle, and share */}
       <Toolbar
         activeTool={activeTool}
         onToolChange={setActiveTool}
@@ -409,119 +410,33 @@ export default function Board() {
         role={board.role}
         boardName={board.name}
         onBack={() => navigate('/dashboard')}
+        saveStatus={saveStatus}
+        showLayers={showLayers}
+        onToggleLayers={() => setShowLayers(v => !v)}
+        onShare={() => setShowShare(true)}
       />
 
-      {/* Mobile heads-up: limited editing on small screens. */}
+      {/* Mobile heads-up */}
       <div className="md:hidden text-[11px] px-3 py-1.5 flex-shrink-0 text-center"
         style={{ background: 'rgba(251,191,36,0.1)', color: '#92400e', borderBottom: '1px solid rgba(251,191,36,0.25)' }}>
         Mobile mode: best viewed on desktop for full editing. Touch + pinch to pan/zoom.
       </div>
 
-      {/* Sub-bar */}
-      <div
-        className="flex items-center justify-between px-3 py-1.5 flex-shrink-0 flex-wrap gap-1"
-        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)' }}
-      >
-        <span className="text-xs font-medium" style={{
-          color: saveStatus === 'saved' ? '#34d399' : saveStatus === 'saving' ? '#fbbf24' : '#f05252'
-        }}>
-          {saveStatus === 'saved'   && '✓ Saved'}
-          {saveStatus === 'saving'  && '● Saving…'}
-          {saveStatus === 'unsaved' && '✕ Save failed'}
-        </span>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowLayers(!showLayers)}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{
-              background: showLayers ? 'rgba(123,104,238,0.15)' : 'transparent',
-              color: showLayers ? '#a89cf7' : 'var(--text-secondary)',
-            }}
-            onMouseEnter={e => { if (!showLayers) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (!showLayers) e.currentTarget.style.background = 'transparent'; }}
-          >
-            Layers
-          </button>
-          <button
-            onClick={() => togglePanel('comments')}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{
-              background: activePanel === 'comments' ? 'rgba(245,158,11,0.15)' : 'transparent',
-              color:      activePanel === 'comments' ? '#fbbf24' : 'var(--text-secondary)',
-            }}
-            onMouseEnter={e => { if (activePanel !== 'comments') e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (activePanel !== 'comments') e.currentTarget.style.background = 'transparent'; }}
-          >
-            <MessageSquare size={12} />
-            Comments
-          </button>
-          <button
-            onClick={() => togglePanel('history')}
-            title="Version history"
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{
-              background: activePanel === 'history' ? 'rgba(123,104,238,0.15)' : 'transparent',
-              color:      activePanel === 'history' ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-            onMouseEnter={e => { if (activePanel !== 'history') e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (activePanel !== 'history') e.currentTarget.style.background = 'transparent'; }}
-          >
-            <History size={12} />
-            History
-          </button>
-          <button
-            onClick={() => togglePanel('linkedin')}
-            title="LinkedIn ad score"
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{
-              background: activePanel === 'linkedin' ? 'rgba(10,102,194,0.2)' : 'transparent',
-              color:      activePanel === 'linkedin' ? '#60a5fa' : 'var(--text-secondary)',
-            }}
-            onMouseEnter={e => { if (activePanel !== 'linkedin') e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (activePanel !== 'linkedin') e.currentTarget.style.background = 'transparent'; }}
-          >
-            <Linkedin size={12} />
-            LinkedIn
-          </button>
-
-          {board.role === 'owner' && (
-            <button
-              onClick={() => setShowShare(true)}
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md font-semibold text-white transition-colors"
-              style={{ background: 'var(--accent)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
-            >
-              <Users size={12} />
-              Share
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowProps(!showProps)}
-            className="flex items-center justify-center w-7 h-7 rounded-md transition-colors"
-            style={{ color: 'var(--text-muted)' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-            title={showProps ? 'Hide panel' : 'Show panel'}
-          >
-            {showProps ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
-          </button>
-        </div>
-      </div>
-
-      {/* Editor area */}
+      {/* Editor area — no sub-bar */}
       <div className="flex flex-1 overflow-hidden">
+
+        {/* Left: layers panel */}
         {showLayers && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches && (
           <LayerPanel
             canvas={canvas}
             selectedObject={selectedObj}
-            onSelect={(obj) => { setSelectedObj(obj); if (obj) setShowProps(true); }}
+            onSelect={(obj) => { setSelectedObj(obj); }}
             layerVersion={layerVersion}
             canEdit={board.role === 'owner' || board.role === 'editor'}
           />
         )}
+
+        {/* Centre: canvas */}
         <div className="flex-1 overflow-hidden relative">
           <CanvasEditor
             key={reloadKey}
@@ -529,7 +444,7 @@ export default function Board() {
             board={board}
             activeTool={activeTool}
             role={board.role}
-            onObjectSelect={(obj) => { setSelectedObj(obj); if (obj) setShowProps(true); }}
+            onObjectSelect={(obj) => { setSelectedObj(obj); }}
             onCanvasChange={handleCanvasChange}
             onCanvasReady={setCanvas}
             onBackgroundChange={setBgColor}
@@ -543,7 +458,7 @@ export default function Board() {
             uploadFn={(file) => uploadApi.upload(file)}
             onThumbnail={async (dataUrl) => {
               try { await boardsApi.thumbnail(board.id, dataUrl); }
-              catch { /* best-effort; thumbnails are a non-critical preview */ }
+              catch { /* best-effort */ }
             }}
           />
           <div
@@ -559,10 +474,6 @@ export default function Board() {
             onZoomTo={(l) => editorRef.current?.zoomTo(l)}
             onZoomToFit={() => editorRef.current?.zoomToFit()}
           />
-
-          {/* Figma-style comment pins float above the canvas. The overlay
-              handles its own pointer events so it doesn't steal interaction
-              from the canvas — only the pins themselves are clickable. */}
           {user && board && (
             <CommentsOverlay
               boardId={board.id}
@@ -585,65 +496,99 @@ export default function Board() {
           )}
         </div>
 
-        {showProps && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches && (
-          <PropertiesPanel
-            selectedObject={selectedObj}
-            canvas={canvas}
-            role={board.role}
-            backgroundColor={bgColor}
-            onBackgroundChange={handleBackgroundChange}
-          />
-        )}
-
-        {activePanel === 'comments' && user && (
-          <CommentsPanel
-            currentUser={user}
-            role={board.role}
-            canvas={canvas}
-            zoom={zoom}
-            activeTool={activeTool}
-            onToolChange={setActiveTool}
-            comments={comments}
-            replies={replies}
-            showResolved={showResolved}
-            onToggleResolved={() => setShowResolved(v => !v)}
-            onResolve={resolveComment}
-            onDelete={deleteComment}
-            onAddReply={addReply}
-            onOpenPin={setOpenPinId}
-            openPinId={openPinId}
-          />
-        )}
-
-        {activePanel === 'linkedin' && (
-          <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden" style={{ borderLeft: '1px solid var(--border)' }}>
-            <LinkedInScorePanel
+        {/* Right panel slot — properties OR an active panel, never both */}
+        {typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches && (
+          activePanel === 'comments' && user ? (
+            <CommentsPanel
+              currentUser={user}
+              role={board.role}
+              canvas={canvas}
+              zoom={zoom}
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+              comments={comments}
+              replies={replies}
+              showResolved={showResolved}
+              onToggleResolved={() => setShowResolved(v => !v)}
+              onResolve={resolveComment}
+              onDelete={deleteComment}
+              onAddReply={addReply}
+              onOpenPin={setOpenPinId}
+              openPinId={openPinId}
+            />
+          ) : activePanel === 'linkedin' ? (
+            <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden" style={{ borderLeft: '1px solid var(--border)' }}>
+              <LinkedInScorePanel
+                onClose={() => setActivePanel(null)}
+                getSnapshot={() => {
+                  if (!canvas) return null;
+                  try { return canvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 0.5 }); }
+                  catch { return null; }
+                }}
+              />
+            </div>
+          ) : activePanel === 'history' && board ? (
+            <VersionHistoryDrawer
+              boardId={board.id}
+              canEdit={board.role === 'owner' || board.role === 'editor'}
               onClose={() => setActivePanel(null)}
-              getSnapshot={() => {
-                if (!canvas) return null;
+              onRestored={async () => {
                 try {
-                  return canvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 0.5 });
-                } catch { return null; }
+                  const { board: refreshed } = await boardsApi.get(board.id);
+                  setBoard(refreshed);
+                  setReloadKey(k => k + 1);
+                  setActivePanel(null);
+                } catch { /* */ }
               }}
             />
-          </div>
+          ) : (
+            <PropertiesPanel
+              selectedObject={selectedObj}
+              canvas={canvas}
+              role={board.role}
+              backgroundColor={bgColor}
+              onBackgroundChange={handleBackgroundChange}
+            />
+          )
         )}
 
-        {activePanel === 'history' && board && (
-          <VersionHistoryDrawer
-            boardId={board.id}
-            canEdit={board.role === 'owner' || board.role === 'editor'}
-            onClose={() => setActivePanel(null)}
-            onRestored={async () => {
-              try {
-                const { board: refreshed } = await boardsApi.get(board.id);
-                setBoard(refreshed);
-                setReloadKey(k => k + 1);
-                setActivePanel(null);
-              } catch { /* */ }
-            }}
-          />
-        )}
+        {/* Right icon strip — vertical Figma-style panel toggles */}
+        <div
+          className="hidden md:flex flex-col items-center gap-1 py-2 flex-shrink-0"
+          style={{
+            width: 40,
+            background: 'var(--bg-toolbar)',
+            borderLeft: '1px solid var(--border)',
+          }}
+        >
+          <RightBtn
+            title="Comments"
+            active={activePanel === 'comments'}
+            activeColor="#fbbf24"
+            activeBg="rgba(245,158,11,0.15)"
+            onClick={() => togglePanel('comments')}
+          >
+            <MessageSquare size={15} />
+          </RightBtn>
+          <RightBtn
+            title="Version History"
+            active={activePanel === 'history'}
+            activeColor="var(--accent)"
+            activeBg="rgba(123,104,238,0.15)"
+            onClick={() => togglePanel('history')}
+          >
+            <History size={15} />
+          </RightBtn>
+          <RightBtn
+            title="LinkedIn Score"
+            active={activePanel === 'linkedin'}
+            activeColor="#60a5fa"
+            activeBg="rgba(10,102,194,0.2)"
+            onClick={() => togglePanel('linkedin')}
+          >
+            <Linkedin size={15} />
+          </RightBtn>
+        </div>
       </div>
 
       {showShare && user && (
@@ -664,5 +609,33 @@ export default function Board() {
         />
       )}
     </div>
+  );
+}
+
+// ── Vertical icon strip button ────────────────────────────────────────────────
+function RightBtn({
+  children, title, active, activeColor, activeBg, onClick,
+}: {
+  children: React.ReactNode;
+  title: string;
+  active: boolean;
+  activeColor: string;
+  activeBg: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      className="flex items-center justify-center w-8 h-8 rounded-md transition-colors"
+      style={{
+        color:      active ? activeColor : 'var(--text-muted)',
+        background: active ? activeBg   : 'transparent',
+      }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; } }}
+    >
+      {children}
+    </button>
   );
 }
