@@ -5,7 +5,7 @@ import { analyseApi, type LinkedInScore } from '@/lib/api';
 const ELSEWHEN_CONTEXT = `Company: Elsewhen
 What we do: Agentic AI consultancy that helps large enterprises move from AI pilots to production systems at scale.
 Target audience: Senior enterprise decision-makers — CTOs, VPs of Strategy, Heads of Product/Design/Engineering at companies with $1B+ revenue (clients include Google, Spotify, Mastercard, WPP).
-Brand aesthetic: Clean, minimal, modern. Professional but human. We frequently use bespoke illustrations and abstract digital art as part of our visual identity — this is intentional and should never be penalised.
+Brand aesthetic: Clean, minimal, modern. Professional but human.
 Content types we post: Client case studies, thought leadership on agentic AI trends, webinar/event promotions, team culture and hiring, partnership announcements.
 Tone: Outcome-focused, credible, accessible — we explain complex AI transformation in plain language. Not salesy, not jargon-heavy.
 What performs well for us: ROI-led case studies, contrarian takes on AI adoption, recognisable client logos, specific outcome stats.`;
