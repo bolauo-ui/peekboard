@@ -98,6 +98,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     // Frame child tracking — maps frameId → last known canvas position
     const framePosRef = useRef(new Map<string, { left: number; top: number }>());
 
+    // Which frame is currently hovered (for blue outline on hover)
+    const hoveredFrameIdRef = useRef<string | null>(null);
+
     // History
     const history    = useRef<string[]>([]);
     const historyIdx = useRef(-1);
@@ -327,8 +330,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const frame = new fabric.Rect({
           left: x, top: y, width: w, height: h,
           fill: 'rgba(255,255,255,0)',
-          stroke: 'rgba(100,100,255,0.6)', strokeWidth: 1,
+          stroke: 'transparent', strokeWidth: 0,
           selectable: true, evented: true,
+          // Figma-style selection handles — hide Fabric bounding box, draw our own
+          borderColor:      'transparent',
+          cornerColor:      '#ffffff',
+          cornerStrokeColor:'#0d99ff',
+          cornerSize:        7,
+          transparentCorners: false,
           data: { id, type: 'frame', objectType: 'frame', frameName: name, children: [], clipContent: true },
         } as any);
         canvas.add(frame);
@@ -566,6 +575,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             onBackgroundChange?.((canvas.backgroundColor as string) || DEFAULT_BG);
             canvas.getObjects().forEach(o => {
               if ((o as any).data?.type === 'frame') {
+                // Apply Figma-style frame appearance (no stroke by default)
+                o.set({
+                  stroke: 'transparent', strokeWidth: 0,
+                  borderColor: 'transparent',
+                  cornerColor: '#ffffff',
+                  cornerStrokeColor: '#0d99ff',
+                  cornerSize: 7,
+                  transparentCorners: false,
+                });
                 frameCount.current++;
                 framePosRef.current.set((o as any).data.id, { left: o.left ?? 0, top: o.top ?? 0 });
               }
@@ -775,20 +793,53 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
       // ── Frame labels + drawing tooltip ────────────────────────────────────
       canvas.on('after:render', () => {
-        const ctx  = canvas.getContext();
-        const zoom = canvas.getZoom();
-        const vpt  = canvas.viewportTransform!;
+        const ctx       = canvas.getContext();
+        const zoom      = canvas.getZoom();
+        const vpt       = canvas.viewportTransform!;
+        const activeObj = canvas.getActiveObject();
 
-        // Render name label above each frame
+        // Render Figma-style frame borders + name labels
         canvas.getObjects().forEach(obj => {
           if ((obj as any).data?.type !== 'frame') return;
+
+          const fw = (obj.width  ?? 0) * (obj.scaleX ?? 1);
+          const fh = (obj.height ?? 0) * (obj.scaleY ?? 1);
           const sx = (obj.left ?? 0) * zoom + vpt[4];
-          const sy = (obj.top  ?? 0) * zoom + vpt[5] - 6;
+          const sy = (obj.top  ?? 0) * zoom + vpt[5];
+          const sw = fw * zoom;
+          const sh = fh * zoom;
+
+          const isSelected = obj === activeObj;
+          const isHovered  = (obj as any).data?.id === hoveredFrameIdRef.current;
+          const hasFill    = obj.fill
+            && obj.fill !== 'rgba(255,255,255,0)'
+            && obj.fill !== 'transparent'
+            && obj.fill !== '';
+
           ctx.save();
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.font = '500 11px Inter, system-ui, sans-serif';
-          ctx.fillStyle = 'rgba(232,232,232,0.85)';
-          ctx.fillText((obj as any).data?.frameName ?? 'Frame', sx, sy);
+
+          // ── Border ──────────────────────────────────────────────────────────
+          if (isSelected) {
+            // Blue solid border when selected (like Figma)
+            ctx.strokeStyle = '#0d99ff';
+            ctx.lineWidth   = 1.5;
+            ctx.strokeRect(sx, sy, sw, sh);
+          } else if (isHovered && !hasFill) {
+            // Blue border on hover when frame has no fill
+            ctx.strokeStyle = '#0d99ff';
+            ctx.lineWidth   = 1;
+            ctx.strokeRect(sx, sy, sw, sh);
+          }
+          // (frames with fill need no border — fill makes them visible)
+
+          // ── Name label above top-left corner (like Figma) ────────────────
+          const frameName = (obj as any).data?.frameName ?? 'Frame';
+          ctx.font         = '400 11px Inter, system-ui, sans-serif';
+          ctx.fillStyle    = isSelected ? '#0d99ff' : 'rgba(160,160,160,0.85)';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(frameName, sx, sy - 6);
+
           ctx.restore();
         });
 
@@ -814,6 +865,24 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           ctx.textAlign = 'left';
           ctx.fillText(label, sx, sy + 13);
           ctx.restore();
+        }
+      });
+
+      // ── Frame hover → show blue outline like Figma ────────────────────────
+      canvas.on('mouse:over', (e) => {
+        const obj = e.target;
+        if ((obj as any)?.data?.type === 'frame') {
+          hoveredFrameIdRef.current = (obj as any).data?.id ?? null;
+          canvas.requestRenderAll();
+        }
+      });
+      canvas.on('mouse:out', (e) => {
+        const obj = e.target;
+        if ((obj as any)?.data?.type === 'frame') {
+          if (hoveredFrameIdRef.current === (obj as any).data?.id) {
+            hoveredFrameIdRef.current = null;
+            canvas.requestRenderAll();
+          }
         }
       });
 
@@ -1401,16 +1470,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         {editingFrame && (
           <input
             autoFocus
-            className="absolute z-20 text-xs font-medium rounded"
+            className="absolute z-20 text-xs rounded"
             style={{
               left:       editingFrame.sx,
               top:        editingFrame.sy,
-              background: 'rgba(22,22,22,0.9)',
-              border:     '1px solid var(--accent)',
-              color:      'rgba(232,232,232,0.9)',
-              padding:    '2px 6px',
-              minWidth:   80,
+              background: 'rgba(30,30,40,0.85)',
+              border:     '1px solid #0d99ff',
+              color:      '#0d99ff',
+              padding:    '1px 4px',
+              minWidth:   60,
+              fontWeight: 400,
               outline:    'none',
+              letterSpacing: 0,
             }}
             value={editingFrame.name}
             onChange={e => {
