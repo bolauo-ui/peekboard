@@ -159,7 +159,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             } catch { /* tainted canvas — skip silently */ }
           }
         }
-      }, 800);
+      }, 300);
     }, [onCanvasChange, onThumbnail]);
 
     useEffect(() => { scheduleRef.current = scheduleChange; }, [scheduleChange]);
@@ -869,9 +869,19 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       });
 
       return () => {
+        // Flush any pending debounced save BEFORE nullifying the canvas so
+        // in-app navigation (back to dashboard) doesn't lose the last edit.
+        if (changeTimer.current) {
+          clearTimeout(changeTimer.current);
+          changeTimer.current = null;
+          const payload = buildPayload();
+          if (payload) {
+            if (onCanvasChangeKeepAlive) onCanvasChangeKeepAlive(payload);
+            else onCanvasChange(payload);
+          }
+        }
         gifStoppers.current.forEach(stop => stop());
         gifStoppers.current.clear();
-        if (changeTimer.current) clearTimeout(changeTimer.current);
         blobUrls.current.forEach(u => URL.revokeObjectURL(u));
         blobUrls.current = [];
         canvas.dispose();
@@ -1083,7 +1093,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         // has idle time to chew through gifuct's heavy decode work.
         const schedule: (cb: () => void) => void =
           (window as any).requestIdleCallback
-            ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 1500 })
+            ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 400 })
             : (cb) => setTimeout(cb, 0);
 
         schedule(async () => {
@@ -1182,10 +1192,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
       // ── Helpers ───────────────────────────────────────────────────────────
       async function fetchBuffer(u: string): Promise<ArrayBuffer> {
+        // Same-origin uploads never need a CORS proxy — skip straight to direct.
+        const isSameOrigin = u.startsWith('/') || u.startsWith(window.location.origin);
         try {
           const r = await fetch(u);
           if (r.ok) return await r.arrayBuffer();
-        } catch { /* fall through to proxy */ }
+        } catch { if (isSameOrigin) throw new Error('same-origin fetch failed'); }
+        if (isSameOrigin) throw new Error('same-origin fetch failed');
         const proxied = `https://corsproxy.io/?${encodeURIComponent(u)}`;
         const r2 = await fetch(proxied);
         return await r2.arrayBuffer();
