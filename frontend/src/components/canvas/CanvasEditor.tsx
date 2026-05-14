@@ -101,6 +101,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     // Which frame is currently hovered (for blue outline on hover)
     const hoveredFrameIdRef = useRef<string | null>(null);
 
+    // Which frame is currently the drop-target while dragging an object
+    const dropTargetFrameIdRef = useRef<string | null>(null);
+
     // History
     const history    = useRef<string[]>([]);
     const historyIdx = useRef(-1);
@@ -237,6 +240,24 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         height: (frame.height ?? 0) * (frame.scaleY ?? 1),
         absolutePositioned: true,
       } as any);
+
+    // ── Apply Figma-style selection appearance to all frame objects ───────────
+    // Called after loadFromJSON (initial + undo/redo) so restored frames keep
+    // the correct handle colours and hidden bounding-box styling.
+    const applyFigmaFrameStyles = (canvas: fabric.Canvas) => {
+      canvas.getObjects().forEach(o => {
+        if ((o as any).data?.type !== 'frame') return;
+        o.set({
+          stroke:           'transparent',
+          strokeWidth:       0,
+          borderColor:      'transparent',
+          cornerColor:      '#ffffff',
+          cornerStrokeColor:'#0d99ff',
+          cornerSize:        7,
+          transparentCorners: false,
+        } as any);
+      });
+    };
 
     // ── Re-parenting ─────────────────────────────────────────────────────────
     const reparentObject = useCallback((obj: fabric.Object, newFrame: fabric.Object | null) => {
@@ -379,20 +400,26 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         if (historyIdx.current <= 0) return;
         historyIdx.current--;
         isRestoring.current = true;
-        fabricRef.current?.loadFromJSON(JSON.parse(history.current[historyIdx.current]), () => {
-          fabricRef.current?.renderAll();
+        const canvas = fabricRef.current;
+        canvas?.loadFromJSON(JSON.parse(history.current[historyIdx.current]), () => {
+          if (canvas) applyFigmaFrameStyles(canvas);
+          canvas?.renderAll();
           isRestoring.current = false;
           onObjectSelect(null);
+          onLayersChangeRef.current?.();
         });
       },
       redo: () => {
         if (historyIdx.current >= history.current.length - 1) return;
         historyIdx.current++;
         isRestoring.current = true;
-        fabricRef.current?.loadFromJSON(JSON.parse(history.current[historyIdx.current]), () => {
-          fabricRef.current?.renderAll();
+        const canvas = fabricRef.current;
+        canvas?.loadFromJSON(JSON.parse(history.current[historyIdx.current]), () => {
+          if (canvas) applyFigmaFrameStyles(canvas);
+          canvas?.renderAll();
           isRestoring.current = false;
           onObjectSelect(null);
+          onLayersChangeRef.current?.();
         });
       },
       copy: () => {
@@ -573,17 +600,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           canvas.loadFromJSON(saved.fabricData, () => {
             canvas.renderAll();
             onBackgroundChange?.((canvas.backgroundColor as string) || DEFAULT_BG);
+            applyFigmaFrameStyles(canvas);
             canvas.getObjects().forEach(o => {
               if ((o as any).data?.type === 'frame') {
-                // Apply Figma-style frame appearance (no stroke by default)
-                o.set({
-                  stroke: 'transparent', strokeWidth: 0,
-                  borderColor: 'transparent',
-                  cornerColor: '#ffffff',
-                  cornerStrokeColor: '#0d99ff',
-                  cornerSize: 7,
-                  transparentCorners: false,
-                });
                 frameCount.current++;
                 framePosRef.current.set((o as any).data.id, { left: o.left ?? 0, top: o.top ?? 0 });
               }
@@ -798,22 +817,33 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const vpt       = canvas.viewportTransform!;
         const activeObj = canvas.getActiveObject();
 
-        // Render Figma-style frame name labels above each frame
+        // Render Figma-style frame name labels + drop-target highlight
         canvas.getObjects().forEach(obj => {
           if ((obj as any).data?.type !== 'frame') return;
 
+          const fw = (obj.width  ?? 0) * (obj.scaleX ?? 1);
+          const fh = (obj.height ?? 0) * (obj.scaleY ?? 1);
           const sx = (obj.left ?? 0) * zoom + vpt[4];
           const sy = (obj.top  ?? 0) * zoom + vpt[5];
+          const sw = fw * zoom;
+          const sh = fh * zoom;
 
-          const isSelected = obj === activeObj;
+          const isSelected   = obj === activeObj;
+          const isDropTarget = (obj as any).data?.id === dropTargetFrameIdRef.current;
 
           ctx.save();
           ctx.setTransform(1, 0, 0, 1, 0, 0);
 
+          // ── Drop-target highlight (Figma purple fill) ─────────────────────
+          if (isDropTarget) {
+            ctx.fillStyle = 'rgba(123,104,238,0.08)';
+            ctx.fillRect(sx, sy, sw, sh);
+          }
+
           // ── Name label above top-left corner (like Figma) ─────────────────
           const frameName = (obj as any).data?.frameName ?? 'Frame';
           ctx.font         = '400 11px Inter, system-ui, sans-serif';
-          ctx.fillStyle    = isSelected ? '#0d99ff' : 'rgba(160,160,160,0.85)';
+          ctx.fillStyle    = isSelected || isDropTarget ? '#0d99ff' : 'rgba(160,160,160,0.85)';
           ctx.textBaseline = 'bottom';
           ctx.fillText(frameName, sx, sy - 6);
 
@@ -878,6 +908,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
       });
 
+      // ── Drop-target highlight while dragging (Figma purple frame glow) ──────
+      canvas.on('object:moving', (e) => {
+        const obj = e.target;
+        if (!obj || (obj as any).data?.type === 'frame') return;
+        const target = getDropTarget(obj);
+        const newId  = (target as any)?.data?.id ?? null;
+        if (newId !== dropTargetFrameIdRef.current) {
+          dropTargetFrameIdRef.current = newId;
+          canvas.requestRenderAll();
+        }
+      });
+
       // ── Selection ─────────────────────────────────────────────────────────
       const trackFramePos = (obj?: fabric.Object) => {
         if (obj && (obj as any).data?.type === 'frame') {
@@ -905,6 +947,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       // ── object:modified — re-parent + sync clip paths ─────────────────────
       canvas.on('object:modified', (e) => {
         const obj = e.target as any;
+        // Clear drop-target highlight after drag completes
+        dropTargetFrameIdRef.current = null;
 
         if (obj.data?.type === 'frame') {
           // Sync position cache + update clip paths for children

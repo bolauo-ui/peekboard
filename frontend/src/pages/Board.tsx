@@ -166,8 +166,8 @@ export default function Board() {
     const onKeyDown = (e: KeyboardEvent) => {
       // Never steal keypresses from inputs / text editing
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      // Also ignore when editing a fabric IText
-      if ((e.target as HTMLElement)?.classList?.contains('canvas-container')) return;
+      // Ignore when a contenteditable element has focus (e.g. Fabric IText hidden div)
+      if ((e.target as HTMLElement)?.isContentEditable) return;
 
       const meta = e.metaKey || e.ctrlKey;
 
@@ -309,12 +309,79 @@ export default function Board() {
         e.preventDefault();
         const c = canvasRef.current;
         if (c) {
-          const objs = c.getObjects();
+          const objs = c.getObjects().filter(o => (o as any).data?.type !== 'frame-preview');
           if (!objs.length) return;
           const sel = new fabric.ActiveSelection(objs, { canvas: c });
           c.setActiveObject(sel); c.renderAll();
         }
         return;
+      }
+
+      // ── Group (Cmd+G) / Ungroup (Cmd+Shift+G) ───────────────────────────
+      if (meta && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        const c = canvasRef.current;
+        if (!c) return;
+        const active = c.getActiveObject();
+        if (e.shiftKey) {
+          // Ungroup
+          if (active instanceof fabric.Group && !(active instanceof fabric.ActiveSelection)) {
+            (active as fabric.Group).toActiveSelection();
+            c.requestRenderAll();
+          }
+        } else {
+          // Group
+          if (active instanceof fabric.ActiveSelection) {
+            (active as any).toGroup();
+            c.requestRenderAll();
+          }
+        }
+        return;
+      }
+
+      // ── Rename layer (Cmd+R) ─────────────────────────────────────────────
+      if (meta && (e.key === 'r' || e.key === 'R') && !e.shiftKey) {
+        e.preventDefault();
+        // Trigger layer rename — focus the layer panel rename input
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject() as any;
+        if (obj) {
+          // Fire a custom event that LayerPanel can listen for
+          window.dispatchEvent(new CustomEvent('peekboard:rename', { detail: { id: obj?.data?.id } }));
+        }
+        return;
+      }
+
+      // ── Flip horizontal (Shift+H) / vertical (Shift+V) ──────────────────
+      if (!meta && e.shiftKey && (e.key === 'H' || e.key === 'h')) {
+        e.preventDefault();
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) { obj.set({ flipX: !obj.flipX }); c.renderAll(); }
+        return;
+      }
+      if (!meta && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+        e.preventDefault();
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) { obj.set({ flipY: !obj.flipY }); c.renderAll(); }
+        return;
+      }
+
+      // ── Opacity shortcuts (0-9 → 0%, 10%, …, 90%; 00 not feasible) ──────
+      if (!meta && !e.shiftKey && e.key >= '1' && e.key <= '9') {
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) {
+          obj.set({ opacity: parseInt(e.key) / 10 });
+          c.renderAll();
+        }
+        // Don't return — let the key still do tool switching
+      }
+      if (!meta && !e.shiftKey && e.key === '0') {
+        const c = canvasRef.current;
+        const obj = c?.getActiveObject();
+        if (obj && c) { obj.set({ opacity: 1 }); c.renderAll(); }
       }
 
       // ── Arrow nudge ──────────────────────────────────────────────────────
@@ -332,6 +399,7 @@ export default function Board() {
           };
           obj.set(delta[e.key] as any);
           obj.setCoords();
+          c.fire('object:modified', { target: obj });
           c.renderAll();
         }
       }

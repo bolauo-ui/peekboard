@@ -40,13 +40,26 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Editing',
     rows: [
       [`${META} Z`,             'Undo'],
-      [`${META} ⇧ Z`,            'Redo'],
+      [`${META} ⇧ Z`,           'Redo'],
+      [`${META} C`,             'Copy'],
+      [`${META} V`,             'Paste'],
       [`${META} D`,             'Duplicate'],
       [`${META} A`,             'Select all'],
+      [`${META} G`,             'Group selection'],
+      [`${META} ⇧ G`,           'Ungroup'],
       ['Del / Backspace',       'Delete selection'],
       ['Arrows',                'Nudge 1 px'],
       ['⇧ Arrows',              'Nudge 10 px'],
       [`${META} S`,             'Save now'],
+    ],
+  },
+  {
+    title: 'Transform',
+    rows: [
+      ['⇧ H',  'Flip horizontal'],
+      ['⇧ V',  'Flip vertical'],
+      ['1–9',  'Set opacity (10 %–90 %)'],
+      ['0',    'Reset opacity to 100 %'],
     ],
   },
   {
