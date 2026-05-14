@@ -1347,7 +1347,7 @@ app.post('/api/analyse/linkedin', authenticate, async (req: any, res) => {
     return;
   }
 
-  const { image } = req.body as { image?: string };
+  const { image, context } = req.body as { image?: string; context?: string };
   if (!image || !image.startsWith('data:image/')) {
     res.status(400).json({ error: 'image must be a base64 data URL' });
     return;
@@ -1358,63 +1358,75 @@ app.post('/api/analyse/linkedin', authenticate, async (req: any, res) => {
   if (!match) { res.status(400).json({ error: 'Invalid image format' }); return; }
   const [, mediaType, base64Data] = match;
 
-  const prompt = `You are a LinkedIn ad performance expert. Analyse this image creative and score it against proven LinkedIn performance benchmarks. Return ONLY valid JSON — no markdown, no prose.
+  const brandContext = context?.trim() || '';
 
-Score each category strictly (don't be generous):
+  const prompt = `You are a LinkedIn content strategist specialising in B2B enterprise brands.${brandContext ? `\n\nBRAND CONTEXT:\n${brandContext}` : ''}
+
+Analyse this creative image for LinkedIn performance. Before scoring, first detect the visual style:
+- Is it a PHOTOGRAPH (real people/places)?
+- Is it an ILLUSTRATION or ABSTRACT ART (drawn, digital art, flat design, conceptual)?
+- Is it a DATA/TEXT graphic (charts, stats, quote cards)?
+
+CRITICAL RULE: Never penalise intentional illustration or abstract art for lacking human faces. Illustrations are a legitimate and effective brand strategy — score them on conceptual clarity and visual storytelling instead.
+
+Return ONLY valid JSON — no markdown, no prose outside the JSON object.
 
 {
   "overall": <0-100 integer>,
   "grade": <"A"|"B"|"C"|"D"|"F">,
-  "verdict": "<2 sentence summary of the creative's LinkedIn potential>",
+  "visual_style": <"photograph"|"illustration"|"data_graphic"|"mixed">,
+  "content_type": <"case_study"|"thought_leadership"|"event_promotion"|"culture"|"product"|"other">,
+  "verdict": "<2 sentences: what this creative does well and its single biggest opportunity on LinkedIn>",
   "categories": [
     {
-      "name": "Human Presence",
+      "name": "Audience Fit",
       "score": <0-20>,
       "max": 20,
-      "benchmark": "Posts with a face get 3× more engagement on LinkedIn",
-      "note": "<specific observation about this image>"
+      "benchmark": "B2B creatives that speak directly to a specific role (CTO, VP, Head of X) see 58% higher engagement than generic messaging",
+      "note": "<does this creative clearly speak to a senior enterprise decision-maker? what signals suggest this?>"
     },
     {
-      "name": "Visual Clarity",
+      "name": "Visual Impact & Scroll-Stop",
       "score": <0-20>,
       "max": 20,
-      "benchmark": "Clear focal point and strong contrast increase scroll-stop rate by 47%",
-      "note": "<specific observation>"
+      "benchmark": "You have 1.7 seconds to stop a scroll. Strong contrast, a clear focal point and visual hierarchy are the top predictors of thumb-stopping power",
+      "note": "<assess contrast, focal clarity, and whether this would stop a scroll in a busy LinkedIn feed — if illustration, assess conceptual boldness>"
     },
     {
-      "name": "Text Density",
-      "score": <0-15>,
-      "max": 15,
-      "benchmark": "Images with under 20% text area outperform heavy-text creatives by 2.3×",
-      "note": "<estimate the % of image covered by text and comment>"
+      "name": "Message Clarity",
+      "score": <0-20>,
+      "max": 20,
+      "benchmark": "LinkedIn posts where the value proposition is clear within 3 seconds perform 2.4× better. The viewer should immediately know what this is about",
+      "note": "<can you understand the core message in 3 seconds? is the headline/hook strong?>"
     },
     {
-      "name": "Composition & Format",
+      "name": "Brand Consistency",
       "score": <0-15>,
       "max": 15,
-      "benchmark": "1200×628px (1.91:1) or 1:1 square are optimal LinkedIn feed formats",
-      "note": "<comment on composition, whitespace, visual balance>"
+      "benchmark": "Consistent visual identity across posts builds 23% higher brand recall. Enterprise buyers need to immediately recognise whose content this is",
+      "note": "<does this feel like a consistent, professional brand? comment on colour, typography, visual style coherence>"
+    },
+    {
+      "name": "Trust & Credibility Signals",
+      "score": <0-15>,
+      "max": 15,
+      "benchmark": "Enterprise buyers are risk-averse. Creatives with social proof (client logos, stats, outcomes, credentials) see 3× higher CTR from senior decision-makers",
+      "note": "<are there trust signals: client names, outcome stats, credentials, recognisable logos? what's present or missing?>"
     },
     {
       "name": "Call to Action",
-      "score": <0-15>,
-      "max": 15,
-      "benchmark": "Creatives with a visible CTA see 2× higher click-through rates",
-      "note": "<is there a visible CTA? what is it?>"
-    },
-    {
-      "name": "Brand & Professionalism",
-      "score": <0-15>,
-      "max": 15,
-      "benchmark": "Consistent brand colours and professional quality build trust and recall",
-      "note": "<comment on brand elements, quality, professional feel>"
+      "score": <0-10>,
+      "max": 10,
+      "benchmark": "B2B creatives with a clear next step (read, watch, download, apply) see 2× higher click-through — even a subtle CTA outperforms none",
+      "note": "<is there a visible CTA or implied next step? how clear and compelling is it?>"
     }
   ],
   "suggestions": [
-    "<most impactful specific improvement>",
-    "<second improvement>",
+    "<most impactful specific improvement — be concrete, e.g. 'Add a client outcome stat like 40% faster deployment' not just 'add social proof'>",
+    "<second improvement — equally specific>",
     "<third improvement>"
-  ]
+  ],
+  "content_type_tips": "<1-2 sentences of advice specific to the detected content type — e.g. if it's thought leadership, what makes enterprise thought leadership land on LinkedIn>"
 }`;
 
   try {

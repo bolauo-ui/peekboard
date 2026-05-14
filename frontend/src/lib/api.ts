@@ -233,15 +233,18 @@ export interface LinkedInScoreCategory {
   note:      string;
 }
 export interface LinkedInScore {
-  overall:    number;
-  grade:      string;
-  verdict:    string;
-  categories: LinkedInScoreCategory[];
-  suggestions: string[];
+  overall:           number;
+  grade:             string;
+  visual_style:      'photograph' | 'illustration' | 'data_graphic' | 'mixed';
+  content_type:      string;
+  verdict:           string;
+  categories:        LinkedInScoreCategory[];
+  suggestions:       string[];
+  content_type_tips: string;
 }
 export const analyseApi = {
-  linkedin: (image: string) =>
-    http.post<LinkedInScore>('/analyse/linkedin', { image }).then(r => r.data),
+  linkedin: (image: string, context?: string) =>
+    http.post<LinkedInScore>('/analyse/linkedin', { image, context }).then(r => r.data),
 };
 
 // ── Upload ────────────────────────────────────────────────────────────────────
