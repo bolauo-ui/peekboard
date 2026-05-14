@@ -46,6 +46,32 @@ interface Props {
 
 const DEFAULT_BG = '#f0f0f0';
 
+// Fabric.js has a bug in `stylesToArray` where it crashes on `undefined`
+// line entries in a text object's `styles` map. This helper scrubs those
+// before every serialisation call so the board never crashes on save.
+function sanitiseTextStyles(canvas: fabric.Canvas) {
+  const walk = (obj: any) => {
+    if (obj?.styles && typeof obj.styles === 'object') {
+      for (const lineKey of Object.keys(obj.styles)) {
+        if (obj.styles[lineKey] == null) {
+          delete obj.styles[lineKey];
+        } else if (typeof obj.styles[lineKey] === 'object') {
+          for (const charKey of Object.keys(obj.styles[lineKey])) {
+            if (obj.styles[lineKey][charKey] == null) {
+              delete obj.styles[lineKey][charKey];
+            }
+          }
+        }
+      }
+    }
+    // Recurse into groups
+    if (typeof obj?.getObjects === 'function') {
+      (obj as fabric.Group).getObjects().forEach(walk);
+    }
+  };
+  canvas.getObjects().forEach(walk);
+}
+
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
   ({ board, activeTool, role, onObjectSelect, onCanvasChange, onCanvasReady,
      onBackgroundChange, onToolChange, onLayersChange, onZoomChange,
@@ -105,11 +131,16 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       if (isRestoring.current) return;
       const canvas = fabricRef.current;
       if (!canvas) return;
-      const snap = JSON.stringify(canvas.toJSON(['data', 'id', 'selectable', 'evented']));
-      history.current = history.current.slice(0, historyIdx.current + 1);
-      history.current.push(snap);
-      if (history.current.length > 60) history.current.shift();
-      else historyIdx.current++;
+      try {
+        sanitiseTextStyles(canvas);
+        const snap = JSON.stringify(canvas.toJSON(['data', 'id', 'selectable', 'evented']));
+        history.current = history.current.slice(0, historyIdx.current + 1);
+        history.current.push(snap);
+        if (history.current.length > 60) history.current.shift();
+        else historyIdx.current++;
+      } catch (e) {
+        console.warn('[history] skipped snapshot due to serialisation error', e);
+      }
     }, []);
 
     // ── Debounced save ───────────────────────────────────────────────────────
@@ -118,6 +149,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const buildPayload = useCallback((): CanvasData | null => {
       const canvas = fabricRef.current;
       if (!canvas) return null;
+      sanitiseTextStyles(canvas);
       const json = canvas.toJSON(['data', 'id', 'selectable', 'evented']);
       const filtered = (json.objects as any[]).filter(
         (o: any) => !['gif', 'mp4', 'webm'].includes(o?.data?.mediaType)
