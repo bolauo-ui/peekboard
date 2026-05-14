@@ -35,13 +35,17 @@ export default function Board() {
   const [canvas, setCanvas]           = useState<fabric.Canvas | null>(null);
   const [bgColor, setBgColor]         = useState('#f0f0f0');
 
-  const [showShare,    setShowShare]    = useState(false);
-  const [showComments, setShowComments] = useState(false);
-  const [showLinkedIn, setShowLinkedIn] = useState(false);
+  const [showShare,   setShowShare]   = useState(false);
+  // Only one right panel open at a time — Figma-style mutual exclusivity.
+  const [activePanel, setActivePanel] = useState<'comments' | 'history' | 'linkedin' | null>(null);
+  const togglePanel = (p: 'comments' | 'history' | 'linkedin') =>
+    setActivePanel(cur => cur === p ? null : p);
   const [showProps,    setShowProps]    = useState(true);
-  // Open the history drawer automatically when arriving via the dashboard
-  // kebab's "Show version history" deep-link (`?history=1`).
-  const [showHistory,  setShowHistory]  = useState(searchParams.get('history') === '1');
+  // Open history automatically when arriving via the dashboard deep-link.
+  useEffect(() => {
+    if (searchParams.get('history') === '1') setActivePanel('history');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [reloadKey,    setReloadKey]    = useState(0);
   const [showLayers,   setShowLayers]   = useState(true);
   const [layerVersion, setLayerVersion] = useState(0);
@@ -440,42 +444,42 @@ export default function Board() {
             Layers
           </button>
           <button
-            onClick={() => setShowComments(!showComments)}
+            onClick={() => togglePanel('comments')}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
             style={{
-              background: showComments ? 'rgba(245,158,11,0.15)' : 'transparent',
-              color: showComments ? '#fbbf24' : 'var(--text-secondary)',
+              background: activePanel === 'comments' ? 'rgba(245,158,11,0.15)' : 'transparent',
+              color:      activePanel === 'comments' ? '#fbbf24' : 'var(--text-secondary)',
             }}
-            onMouseEnter={e => { if (!showComments) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (!showComments) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={e => { if (activePanel !== 'comments') e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (activePanel !== 'comments') e.currentTarget.style.background = 'transparent'; }}
           >
             <MessageSquare size={12} />
             Comments
           </button>
           <button
-            onClick={() => setShowHistory(!showHistory)}
+            onClick={() => togglePanel('history')}
             title="Version history"
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
             style={{
-              background: showHistory ? 'rgba(123,104,238,0.15)' : 'transparent',
-              color:      showHistory ? 'var(--accent)' : 'var(--text-secondary)',
+              background: activePanel === 'history' ? 'rgba(123,104,238,0.15)' : 'transparent',
+              color:      activePanel === 'history' ? 'var(--accent)' : 'var(--text-secondary)',
             }}
-            onMouseEnter={e => { if (!showHistory) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (!showHistory) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={e => { if (activePanel !== 'history') e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (activePanel !== 'history') e.currentTarget.style.background = 'transparent'; }}
           >
             <History size={12} />
             History
           </button>
           <button
-            onClick={() => setShowLinkedIn(!showLinkedIn)}
+            onClick={() => togglePanel('linkedin')}
             title="LinkedIn ad score"
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-colors"
             style={{
-              background: showLinkedIn ? 'rgba(10,102,194,0.2)' : 'transparent',
-              color:      showLinkedIn ? '#60a5fa' : 'var(--text-secondary)',
+              background: activePanel === 'linkedin' ? 'rgba(10,102,194,0.2)' : 'transparent',
+              color:      activePanel === 'linkedin' ? '#60a5fa' : 'var(--text-secondary)',
             }}
-            onMouseEnter={e => { if (!showLinkedIn) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (!showLinkedIn) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={e => { if (activePanel !== 'linkedin') e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (activePanel !== 'linkedin') e.currentTarget.style.background = 'transparent'; }}
           >
             <Linkedin size={12} />
             LinkedIn
@@ -591,7 +595,7 @@ export default function Board() {
           />
         )}
 
-        {showComments && user && (
+        {activePanel === 'comments' && user && (
           <CommentsPanel
             currentUser={user}
             role={board.role}
@@ -611,10 +615,10 @@ export default function Board() {
           />
         )}
 
-        {showLinkedIn && (
+        {activePanel === 'linkedin' && (
           <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden" style={{ borderLeft: '1px solid var(--border)' }}>
             <LinkedInScorePanel
-              onClose={() => setShowLinkedIn(false)}
+              onClose={() => setActivePanel(null)}
               getSnapshot={() => {
                 if (!canvas) return null;
                 try {
@@ -625,18 +629,17 @@ export default function Board() {
           </div>
         )}
 
-        {showHistory && board && (
+        {activePanel === 'history' && board && (
           <VersionHistoryDrawer
             boardId={board.id}
             canEdit={board.role === 'owner' || board.role === 'editor'}
-            onClose={() => setShowHistory(false)}
+            onClose={() => setActivePanel(null)}
             onRestored={async () => {
-              // Re-fetch the board so the canvas paints the restored state.
               try {
                 const { board: refreshed } = await boardsApi.get(board.id);
                 setBoard(refreshed);
                 setReloadKey(k => k + 1);
-                setShowHistory(false);
+                setActivePanel(null);
               } catch { /* */ }
             }}
           />
