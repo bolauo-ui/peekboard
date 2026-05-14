@@ -1,8 +1,14 @@
-import { useState, useCallback, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect, FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+
+function getPostAuthRedirect(): string {
+  const pending = localStorage.getItem('pending_invite');
+  if (pending) return `/invite/${pending}`;
+  return '/dashboard';
+}
 
 export default function Signup() {
   const [name,     setName]     = useState('');
@@ -12,6 +18,12 @@ export default function Signup() {
   const [loading,  setLoading]  = useState(false);
   const { setAuth } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const inviteToken = searchParams.get('invite');
+  useEffect(() => {
+    if (inviteToken) localStorage.setItem('pending_invite', inviteToken);
+  }, [inviteToken]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault(); setError('');
@@ -20,7 +32,7 @@ export default function Signup() {
     try {
       const { token, user } = await authApi.register({ name, email, password });
       setAuth(user, token);
-      navigate('/dashboard');
+      navigate(getPostAuthRedirect());
     } catch (err: any) {
       setError(err.response?.data?.error || 'Sign up failed. Please try again.');
     } finally { setLoading(false); }
@@ -31,7 +43,7 @@ export default function Signup() {
     try {
       const { token, user } = await authApi.google(credential);
       setAuth(user, token);
-      navigate('/dashboard');
+      navigate(getPostAuthRedirect());
     } catch (err: any) {
       setError(err.response?.data?.error || 'Google sign-up failed.');
     } finally { setLoading(false); }
@@ -51,8 +63,18 @@ export default function Signup() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Peekboard</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Create your account</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            {inviteToken ? 'Create an account to accept your board invite' : 'Create your account'}
+          </p>
         </div>
+
+        {/* Invite context banner */}
+        {inviteToken && (
+          <div className="mb-4 px-4 py-3 rounded-xl text-sm text-center"
+            style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', color: 'rgba(255,255,255,0.8)' }}>
+            🎉 You've been invited to a board — create an account to join it.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}
           className="rounded-xl p-6 space-y-4"
@@ -91,7 +113,8 @@ export default function Signup() {
 
         <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
           Already have an account?{' '}
-          <Link to="/login" className="font-medium" style={{ color: 'var(--accent)' }}>Sign in</Link>
+          <Link to={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
+            className="font-medium" style={{ color: 'var(--accent)' }}>Sign in</Link>
         </p>
       </div>
     </div>

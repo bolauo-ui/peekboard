@@ -20,10 +20,14 @@ export default function AcceptInvite() {
     }
     sharingApi.acceptInvite(token)
       .then(({ board_id }) => {
+        // Clear the stored invite token now that it's been consumed.
+        localStorage.removeItem('pending_invite');
         setStatus('success');
         setTimeout(() => navigate(`/board/${board_id}`), 1500);
       })
       .catch((err) => {
+        // Clear stale token so it doesn't redirect on next login.
+        localStorage.removeItem('pending_invite');
         setStatus('error');
         setMessage(err.response?.data?.error || 'This invite link is invalid or has expired.');
       });

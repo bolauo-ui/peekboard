@@ -19,8 +19,10 @@ export default function MagicLink() {
       .then(({ token: jwt, user }) => {
         setAuth(user, jwt);
         setStatus('ok');
-        // Land them on the dashboard once the success message is on screen.
-        setTimeout(() => navigate('/dashboard'), 600);
+        // Honour any pending invite; otherwise go to the dashboard.
+        const pending = localStorage.getItem('pending_invite');
+        const dest = pending ? `/invite/${pending}` : '/dashboard';
+        setTimeout(() => navigate(dest), 600);
       })
       .catch(err => {
         setStatus('fail');

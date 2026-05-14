@@ -1,8 +1,16 @@
-import { useState, useCallback, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect, FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+
+// After any successful auth, check for a pending invite token and redirect
+// back to the invite acceptance page instead of the dashboard.
+function getPostAuthRedirect(): string {
+  const pending = localStorage.getItem('pending_invite');
+  if (pending) return `/invite/${pending}`;
+  return '/dashboard';
+}
 
 export default function Login() {
   const [email,    setEmail]    = useState('');
@@ -15,6 +23,14 @@ export default function Login() {
   const [twoCode,  setTwoCode]  = useState('');
   const { setAuth } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // If user arrived via an invite link, store the token so it survives
+  // the login flow and show a contextual banner.
+  const inviteToken = searchParams.get('invite');
+  useEffect(() => {
+    if (inviteToken) localStorage.setItem('pending_invite', inviteToken);
+  }, [inviteToken]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault(); setError(''); setLoading(true);
@@ -26,7 +42,7 @@ export default function Login() {
         setPreToken(r.token);
       } else {
         setAuth(r.user, r.token);
-        navigate('/dashboard');
+        navigate(getPostAuthRedirect());
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
@@ -40,7 +56,7 @@ export default function Login() {
     try {
       const { token, user } = await authApi.twoFaLogin(preToken, twoCode.trim());
       setAuth(user, token);
-      navigate('/dashboard');
+      navigate(getPostAuthRedirect());
     } catch (err: any) {
       setError(err.response?.data?.error || 'Code is incorrect.');
     } finally { setLoading(false); }
@@ -66,7 +82,7 @@ export default function Login() {
     try {
       const { token, user } = await authApi.google(credential);
       setAuth(user, token);
-      navigate('/dashboard');
+      navigate(getPostAuthRedirect());
     } catch (err: any) {
       setError(err.response?.data?.error || 'Google sign-in failed.');
     } finally { setLoading(false); }
@@ -87,8 +103,18 @@ export default function Login() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Peekboard</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Sign in to your workspace</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            {inviteToken ? 'Sign in to accept your board invite' : 'Sign in to your workspace'}
+          </p>
         </div>
+
+        {/* Invite context banner */}
+        {inviteToken && (
+          <div className="mb-4 px-4 py-3 rounded-xl text-sm text-center"
+            style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', color: 'rgba(255,255,255,0.8)' }}>
+            🎉 You've been invited to a board — sign in to join it.
+          </div>
+        )}
 
         {preToken ? (
           <form onSubmit={verify2fa}
@@ -179,7 +205,8 @@ export default function Login() {
 
         <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
           No account?{' '}
-          <Link to="/signup" className="font-medium" style={{ color: 'var(--accent)' }}>Sign up</Link>
+          <Link to={inviteToken ? `/signup?invite=${inviteToken}` : '/signup'}
+            className="font-medium" style={{ color: 'var(--accent)' }}>Sign up</Link>
         </p>
       </div>
     </div>
