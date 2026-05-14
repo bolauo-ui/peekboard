@@ -40,19 +40,11 @@ export default function LandingPage() {
           borderBottom: '1px solid rgba(0,0,0,0.07)',
           flexShrink: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect width="7" height="7" fill="#0a0a0a" />
-              <rect x="9" y="9" width="7" height="7" fill="#0a0a0a" />
-              <rect x="9" width="7" height="7" fill="#0a0a0a" />
-            </svg>
-            <span style={{
-              fontSize: 16, fontWeight: 600, letterSpacing: '-0.02em',
-              color: '#0a0a0a', fontFamily: 'Inter, sans-serif',
-            }}>
-              Peekboard
-            </span>
-          </div>
+          <img
+            src="/peekboard-logo.svg"
+            alt="Peekboard"
+            style={{ height: 22, width: 'auto', display: 'block' }}
+          />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Link to="/login" style={{
@@ -103,10 +95,10 @@ export default function LandingPage() {
               fontFamily: '"Crimson Pro", Georgia, serif',
               fontWeight: 400,
               fontSize: 'clamp(44px, 4.8vw, 66px)',
-              lineHeight: 1.04,
-              letterSpacing: '-0.015em',
+              lineHeight: 1.06,
+              letterSpacing: '0em',
               color: '#0a0a0a',
-              margin: '0 0 22px 0',
+              margin: '0 0 20px 0',
             }}>
               Preview your<br />
               motion creatives<br />
@@ -119,6 +111,7 @@ export default function LandingPage() {
               fontWeight: 400,
               fontSize: 'clamp(15px, 1.3vw, 17px)',
               lineHeight: 1.65,
+              letterSpacing: '0em',
               color: '#444',
               margin: '0 0 32px 0',
             }}>
