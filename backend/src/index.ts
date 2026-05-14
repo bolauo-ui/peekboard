@@ -1429,7 +1429,8 @@ Return ONLY valid JSON — no markdown, no prose outside the JSON object.
   "content_type_tips": "<1-2 sentences of advice specific to the detected content type — e.g. if it's thought leadership, what makes enterprise thought leadership land on LinkedIn>"
 }`;
 
-  try {
+  // Call Anthropic with automatic retry on transient failures.
+  const callClaude = async (maxTokens: number): Promise<string> => {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1439,7 +1440,7 @@ Return ONLY valid JSON — no markdown, no prose outside the JSON object.
       },
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         messages: [{
           role: 'user',
           content: [
@@ -1449,23 +1450,42 @@ Return ONLY valid JSON — no markdown, no prose outside the JSON object.
         }],
       }),
     });
-
     if (!r.ok) {
       const body = await r.text();
-      console.warn('[linkedin-score] Anthropic error', r.status, body);
-      res.status(502).json({ error: 'AI analysis failed', detail: `${r.status}` });
-      return;
+      throw new Error(`Anthropic ${r.status}: ${body.slice(0, 200)}`);
+    }
+    const data = await r.json() as any;
+    return data?.content?.[0]?.text ?? '';
+  };
+
+  // Attempt to extract valid JSON from Claude's response. Claude sometimes
+  // wraps JSON in markdown fences or adds prose — this strips both.
+  const extractJson = (raw: string): any => {
+    // Strip markdown code fences if present
+    const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const start = stripped.indexOf('{');
+    const end   = stripped.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error('No JSON object found in response');
+    return JSON.parse(stripped.slice(start, end + 1));
+  };
+
+  try {
+    // First attempt with 2048 tokens. If JSON parse fails (truncated response),
+    // retry once with 3072 tokens before giving up.
+    let raw = '';
+    let result: any = null;
+
+    for (const tokens of [2048, 3072]) {
+      try {
+        raw = await callClaude(tokens);
+        result = extractJson(raw);
+        break;
+      } catch (parseErr: any) {
+        console.warn(`[linkedin-score] parse failed at ${tokens} tokens, retrying…`, parseErr.message);
+        if (tokens === 3072) throw parseErr;
+      }
     }
 
-    const data = await r.json() as any;
-    const raw = data?.content?.[0]?.text ?? '';
-    const jsonStart = raw.indexOf('{');
-    const jsonEnd   = raw.lastIndexOf('}');
-    if (jsonStart === -1 || jsonEnd === -1) {
-      res.status(502).json({ error: 'Unexpected AI response format' });
-      return;
-    }
-    const result = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
     res.json(result);
   } catch (err: any) {
     console.error('[linkedin-score] error', err);
