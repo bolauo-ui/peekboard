@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
+
 /* ── Design tokens ──────────────────────────────────────────────────────────── */
 :root {
   --bg-toolbar:   #1a1a1a;
