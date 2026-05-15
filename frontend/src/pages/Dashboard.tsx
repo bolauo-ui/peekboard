@@ -264,11 +264,11 @@ export default function Dashboard() {
           <span className="text-sm font-medium text-gray-700 hidden sm:block">{user?.name}</span>
           <button onClick={() => navigate('/settings')}
             title="Account settings"
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
+            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
             <SettingsIcon size={14} /><span className="hidden sm:inline">Settings</span>
           </button>
           <button onClick={() => { clearAuth(); navigate('/login'); }}
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
+            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors">
             <LogOut size={14} /><span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
@@ -291,13 +291,13 @@ export default function Dashboard() {
           />
 
           <div className="mt-4 flex items-center justify-between px-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
               Projects
             </span>
             <button
               onClick={() => setNewProjectMode(true)}
               title="New project"
-              className="rounded p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              className="rounded p-0.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
             >
               <FolderPlus size={12} />
             </button>
@@ -394,7 +394,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div className="min-w-0">
             <h2 className="text-xl text-gray-900" style={{ fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>My Boards</h2>
-            <p className="text-sm text-gray-400 mt-0.5" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>Upload motion assets and add text overlays</p>
+            <p className="text-sm text-gray-500 mt-0.5" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>Upload motion assets and add text overlays</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
             <div className="relative hidden sm:block">
@@ -701,7 +701,7 @@ interface BoardGridProps {
 function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, onShowHistory, onRename, onDelete, onDuplicate, onToggleStar, onMoveToProject, onContextOpen, projects, showDelete, renaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel }: BoardGridProps) {
   return (
     <section className="mb-10">
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">{title}</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {boards.map(board => (
           <div
@@ -772,7 +772,7 @@ function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, o
                   ) : (
                     <p className="font-semibold text-gray-900 text-sm truncate">{board.name}</p>
                   )}
-                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                     <Clock size={10} />{timeAgo(board.last_edited_at ?? board.updated_at)}
                     {board.last_edited_by_name && (
                       <span className="flex items-center gap-1 ml-1">
