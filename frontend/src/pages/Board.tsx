@@ -490,11 +490,6 @@ export default function Board() {
         onShare={() => setShowShare(true)}
       />
 
-      {/* Mobile heads-up */}
-      <div className="md:hidden text-[11px] px-3 py-1.5 flex-shrink-0 text-center"
-        style={{ background: 'rgba(251,191,36,0.1)', color: '#92400e', borderBottom: '1px solid rgba(251,191,36,0.25)' }}>
-        Mobile mode: best viewed on desktop for full editing. Touch + pinch to pan/zoom.
-      </div>
 
       {/* Editor area — no sub-bar */}
       <div className="flex flex-1 overflow-hidden">
