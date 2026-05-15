@@ -45,7 +45,7 @@ export default function UseCaseModal({ user, onSave, onSkip }: Props) {
                 onClick={() => setPick(o.key)}
                 className="w-full flex items-center gap-3 text-left rounded-lg px-3 py-2.5 transition-all"
                 style={{
-                  background: active ? 'rgba(123,104,238,0.08)' : '#fafbfc',
+                  background: active ? 'rgba(27,175,216,0.08)' : '#fafbfc',
                   border:     active ? '1.5px solid var(--accent)' : '1.5px solid #ececef',
                 }}
               >

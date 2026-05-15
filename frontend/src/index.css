@@ -19,9 +19,9 @@
   --text-secondary: rgba(232,232,232,0.55);
   --text-muted:     rgba(232,232,232,0.3);
 
-  --accent:       #7b68ee;
-  --accent-hover: #8f7ff0;
-  --accent-dim:   rgba(123,104,238,0.18);
+  --accent:       #1BAFD8;
+  --accent-hover: #15A0C8;
+  --accent-dim:   rgba(27,175,216,0.18);
 
   --danger:       #f05252;
 }

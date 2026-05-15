@@ -836,7 +836,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
           // ── Drop-target highlight (Figma purple fill) ─────────────────────
           if (isDropTarget) {
-            ctx.fillStyle = 'rgba(123,104,238,0.08)';
+            ctx.fillStyle = 'rgba(27,175,216,0.08)';
             ctx.fillRect(sx, sy, sw, sh);
           }
 
@@ -1498,9 +1498,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         ref={wrapperRef}
         className="w-full h-full flex items-center justify-center overflow-hidden relative"
         style={{
-          background:    isDragOver ? 'rgba(123,104,238,0.1)' : 'var(--bg-surround)',
+          background:    isDragOver ? 'rgba(27,175,216,0.1)' : 'var(--bg-surround)',
           transition:    'background 0.12s',
-          outline:       isDragOver ? '2px dashed rgba(123,104,238,0.6)' : 'none',
+          outline:       isDragOver ? '2px dashed rgba(27,175,216,0.6)' : 'none',
           outlineOffset: '-2px',
         }}
         onDragOver={handleDragOver}
@@ -1510,7 +1510,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         {isDragOver && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
             <div className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg"
-              style={{ background: 'rgba(123,104,238,0.9)', color: '#fff' }}>
+              style={{ background: 'rgba(27,175,216,0.9)', color: '#fff' }}>
               Drop to add
             </div>
           </div>

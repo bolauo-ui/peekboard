@@ -5,14 +5,14 @@ import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import AvatarImage from '@/components/AvatarImage';
 
-const AVATAR_COLORS = ['#6366f1','#7b68ee','#8b5cf6','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444','#14b8a6'];
+const AVATAR_COLORS = ['#1BAFD8','#1BAFD8','#1BAFD8','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444','#14b8a6'];
 
 export default function Settings() {
   const { user, setAuth, token, clearAuth } = useAuthStore();
   const navigate = useNavigate();
 
   const [name,         setName]         = useState(user?.name ?? '');
-  const [color,        setColor]        = useState(user?.avatar_color ?? '#7b68ee');
+  const [color,        setColor]        = useState(user?.avatar_color ?? '#1BAFD8');
   const [profileMsg,   setProfileMsg]   = useState<string | null>(null);
   const [profileBusy,  setProfileBusy]  = useState(false);
 

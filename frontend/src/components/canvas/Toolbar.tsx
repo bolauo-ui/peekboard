@@ -28,13 +28,13 @@ const TOOLS: { id: Tool; icon: React.ReactNode; label: string }[] = [
 ];
 
 const ROLE_COLOR: Record<string, string> = {
-  owner:     'rgba(123,104,238,0.25)',
+  owner:     'rgba(27,175,216,0.25)',
   editor:    'rgba(16,185,129,0.2)',
   commenter: 'rgba(245,158,11,0.2)',
   viewer:    'rgba(255,255,255,0.08)',
 };
 const ROLE_TEXT: Record<string, string> = {
-  owner: '#a89cf7', editor: '#34d399', commenter: '#fbbf24', viewer: '#888',
+  owner: '#7DD9ED', editor: '#34d399', commenter: '#fbbf24', viewer: '#888',
 };
 
 export default function Toolbar({
@@ -104,7 +104,7 @@ export default function Toolbar({
           onClick={onToggleLayers}
           className="toolbar-btn"
           style={{ color: showLayers ? 'var(--accent)' : undefined,
-                   background: showLayers ? 'rgba(123,104,238,0.15)' : undefined }}
+                   background: showLayers ? 'rgba(27,175,216,0.15)' : undefined }}
         >
           <Layers size={15} />
         </button>

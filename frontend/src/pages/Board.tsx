@@ -648,7 +648,7 @@ export default function Board() {
             title="Version History"
             active={activePanel === 'history'}
             activeColor="var(--accent)"
-            activeBg="rgba(123,104,238,0.15)"
+            activeBg="rgba(27,175,216,0.15)"
             onClick={() => togglePanel('history')}
           >
             <History size={15} />

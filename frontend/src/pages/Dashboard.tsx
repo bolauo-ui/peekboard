@@ -24,7 +24,7 @@ function timeAgo(d: string) {
 }
 
 const ROLE_PILL: Record<string, { bg: string; text: string }> = {
-  owner:     { bg: 'rgba(123,104,238,0.12)', text: '#a89cf7' },
+  owner:     { bg: 'rgba(27,175,216,0.12)', text: '#7DD9ED' },
   editor:    { bg: 'rgba(52,211,153,0.12)',  text: '#34d399' },
   commenter: { bg: 'rgba(251,191,36,0.12)',  text: '#fbbf24' },
   viewer:    { bg: 'rgba(255,255,255,0.07)', text: '#888' },
@@ -255,19 +255,12 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)' }}>
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-gray-900">Peekboard</span>
+        <div className="flex items-center">
+          <img src="/peekboard-logo-full.svg" alt="Peekboard" style={{ height: 22, width: 'auto', display: 'block' }} />
         </div>
         <div className="flex items-center gap-3">
           <NotificationsBell />
-          <AvatarImage name={user?.name || '?'} color={user?.avatar_color || '#7b68ee'} url={user?.avatar_url} size={28} />
+          <AvatarImage name={user?.name || '?'} color={user?.avatar_color || '#1BAFD8'} url={user?.avatar_url} size={28} />
           <span className="text-sm font-medium text-gray-700 hidden sm:block">{user?.name}</span>
           <button onClick={() => navigate('/settings')}
             title="Account settings"
@@ -349,7 +342,7 @@ export default function Dashboard() {
             about, dismissed for this browser via localStorage. */}
         {user && !user.avatar_url && localStorage.getItem('mb_nudge_dismissed') !== '1' && (
           <div className="mb-5 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
-            style={{ background: 'rgba(123,104,238,0.06)', border: '1px solid rgba(123,104,238,0.25)', color: '#5b4edc' }}>
+            style={{ background: 'rgba(27,175,216,0.06)', border: '1px solid rgba(27,175,216,0.25)', color: '#1BAFD8' }}>
             <Sparkles size={13} />
             <span className="flex-1">
               Round out your profile so teammates recognise you — <strong>add a photo</strong> in settings.
@@ -357,7 +350,7 @@ export default function Dashboard() {
             <button onClick={() => navigate('/settings')}
               className="font-semibold underline">Open settings</button>
             <button onClick={() => { localStorage.setItem('mb_nudge_dismissed', '1'); window.location.reload(); }}
-              className="text-[11px]" style={{ color: '#5b4edc', opacity: 0.6 }}>Dismiss</button>
+              className="text-[11px]" style={{ color: '#1BAFD8', opacity: 0.6 }}>Dismiss</button>
           </div>
         )}
 
@@ -596,7 +589,7 @@ function SidebarLink({ active, onClick, icon, label, onRename, onDelete }: Sideb
       }}
       className="group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer text-[13px]"
       style={{
-        background: active ? 'rgba(123,104,238,0.12)' : 'transparent',
+        background: active ? 'rgba(27,175,216,0.12)' : 'transparent',
         color:      active ? 'var(--accent)' : '#4b5563',
       }}
       onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = '#f3f4f6'; }}
@@ -730,7 +723,7 @@ function BoardGrid({ title, boards, onOpen, onOpenNewTab, onCopyLink, onShare, o
                   loading="lazy"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(123,104,238,0.08)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(27,175,216,0.08)' }}>
                   <svg className="w-5 h-5" style={{ color: 'var(--accent)', opacity: 0.5 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

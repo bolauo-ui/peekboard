@@ -113,9 +113,9 @@ export default function NotificationsBell() {
                 key={n.id}
                 onClick={() => jumpTo(n)}
                 className="w-full text-left px-4 py-2.5 flex items-start gap-2.5 transition-colors"
-                style={{ background: n.read ? 'transparent' : 'rgba(123,104,238,0.06)' }}
+                style={{ background: n.read ? 'transparent' : 'rgba(27,175,216,0.06)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(123,104,238,0.06)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(27,175,216,0.06)')}
               >
                 <AvatarImage
                   name={n.from_name}

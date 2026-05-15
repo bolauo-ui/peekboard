@@ -103,8 +103,8 @@ export default function Signup() {
           {inviteToken && (
             <div style={{
               marginBottom: 20, padding: '10px 16px', borderRadius: 10,
-              background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
-              fontSize: 13, color: '#4338ca',
+              background: 'rgba(27,175,216,0.08)', border: '1px solid rgba(27,175,216,0.2)',
+              fontSize: 13, color: '#1BAFD8',
             }}>
               🎉 You've been invited to a board — create an account to join it.
             </div>
@@ -153,7 +153,7 @@ export default function Signup() {
             Already have an account?{' '}
             <Link
               to={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
-              style={{ color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}
+              style={{ color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}
             >
               Sign in
             </Link>

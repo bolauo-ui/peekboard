@@ -302,9 +302,9 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
                   paddingLeft: 4 + indent,
                   paddingRight: 4,
                   background: layer.isSelected
-                    ? 'rgba(123,104,238,0.2)'
+                    ? 'rgba(27,175,216,0.2)'
                     : dragOver === layer.id
-                    ? 'rgba(123,104,238,0.1)'
+                    ? 'rgba(27,175,216,0.1)'
                     : 'transparent',
                   opacity: layer.visible ? 1 : 0.4,
                 }}
@@ -327,7 +327,7 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
                 </span>
 
                 {/* Type icon */}
-                <span style={{ color: layer.isSelected ? '#a89cf7' : 'var(--text-muted)', flexShrink: 0 }}>
+                <span style={{ color: layer.isSelected ? '#7DD9ED' : 'var(--text-muted)', flexShrink: 0 }}>
                   {TYPE_ICON[layer.type]}
                 </span>
 

@@ -123,8 +123,8 @@ export default function Login() {
           {inviteToken && (
             <div style={{
               marginBottom: 20, padding: '10px 16px', borderRadius: 10,
-              background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
-              fontSize: 13, color: '#4338ca',
+              background: 'rgba(27,175,216,0.08)', border: '1px solid rgba(27,175,216,0.2)',
+              fontSize: 13, color: '#1BAFD8',
             }}>
               🎉 You've been invited to a board — sign in to join it.
             </div>
@@ -176,7 +176,7 @@ export default function Login() {
                 <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                   style={inputStyle} placeholder="••••••••" required />
                 <div style={{ textAlign: 'right', marginTop: 4 }}>
-                  <Link to="/forgot-password" style={{ fontSize: 13, color: '#4338ca', textDecoration: 'none' }}>
+                  <Link to="/forgot-password" style={{ fontSize: 13, color: '#1BAFD8', textDecoration: 'none' }}>
                     Forgot Password?
                   </Link>
                 </div>
@@ -208,7 +208,7 @@ export default function Login() {
             Don't you have an account?{' '}
             <Link
               to={inviteToken ? `/signup?invite=${inviteToken}` : '/signup'}
-              style={{ color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}
+              style={{ color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}
             >
               Sign up
             </Link>

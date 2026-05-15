@@ -90,7 +90,7 @@ export default function ForgotPassword() {
               <p style={{ fontSize: 14, color: '#166534', margin: 0, lineHeight: 1.5, fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', letterSpacing: '-0.03em' }}>
                 If an account exists for <strong>{email}</strong>, we just sent a reset link. It expires in an hour.
               </p>
-              <Link to="/login" style={{ fontSize: 13, color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}>
+              <Link to="/login" style={{ fontSize: 13, color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}>
                 ← Back to sign in
               </Link>
             </div>
@@ -145,7 +145,7 @@ export default function ForgotPassword() {
 
               <p style={{ margin: 0, fontSize: 14, color: '#666', textAlign: 'center' }}>
                 Remembered it?{' '}
-                <Link to="/login" style={{ color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}>
+                <Link to="/login" style={{ color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}>
                   Back to sign in
                 </Link>
               </p>
