@@ -13,17 +13,21 @@ interface Props {
   role: string;
   onBackgroundChange: (color: string) => void;
   backgroundColor: string;
+  onStartEyePlacement?: () => void;
+  eyeTick?: number;  // increment to force re-read of eye state
 }
 
 const FONTS = ['Inter','Arial','Georgia','Times New Roman','Courier New','Verdana','Impact','Trebuchet MS'];
 
 
-export default function PropertiesPanel({ selectedObject, canvas, role, onBackgroundChange, backgroundColor }: Props) {
+export default function PropertiesPanel({ selectedObject, canvas, role, onBackgroundChange, backgroundColor, onStartEyePlacement, eyeTick }: Props) {
   const canEdit = role === 'owner' || role === 'editor';
   const isText  = selectedObject instanceof fabric.IText || selectedObject instanceof fabric.Text;
   const isFrame = (selectedObject as any)?.data?.objectType === 'frame'
                 || (selectedObject as any)?.data?.type === 'frame';
   const isSvg   = (selectedObject as any)?.data?.objectType === 'svg';
+  // Any image/media object (not text, not frame, not svg group) can have eyes
+  const canHaveEyes = selectedObject && !isText && !isFrame && !isSvg;
 
   const [fontFamily,    setFontFamily]    = useState('Inter');
   const [fontSize,      setFontSize]      = useState(20);
@@ -46,6 +50,8 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
   const [auto, setAuto] = useState<AutoLayout | null>(null);
   // Tick to force re-read of SVG child fills/strokes after each edit.
   const [svgTick, setSvgTick] = useState(0);
+  // Eye follower state — re-read whenever eyeTick changes (placement added an eye).
+  const [eyeFollower, setEyeFollower] = useState<{ enabled: boolean; eyes: any[] } | null>(null);
 
   useEffect(() => {
     if (!selectedObject) return;
@@ -75,7 +81,14 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
       setAuto(null);
     }
     setSvgTick(t => t + 1);
+    setEyeFollower((selectedObject as any)?.data?.eyeFollower ?? null);
   }, [selectedObject, isText, isFrame]);
+
+  // Re-sync eye state when an eye is placed externally (eyeTick increments)
+  useEffect(() => {
+    setEyeFollower((selectedObject as any)?.data?.eyeFollower ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eyeTick]);
 
   const apply = (props: Record<string, unknown>) => {
     if (!selectedObject || !canvas || !canEdit) return;
@@ -518,6 +531,69 @@ export default function PropertiesPanel({ selectedObject, canvas, role, onBackgr
                 <LayerBtn onClick={fwd}><ChevronUp size={11} /> Forward</LayerBtn>
                 <LayerBtn onClick={bwd}><ChevronDown size={11} /> Back</LayerBtn>
               </div>
+            </div>
+          )}
+
+          {/* Interactive — eyes follow cursor */}
+          {canHaveEyes && canEdit && (
+            <div className="panel-section">
+              <div className="flex items-center justify-between mb-2">
+                <SectionHeader>Interactive</SectionHeader>
+                <button
+                  onClick={() => {
+                    const obj = selectedObject as any;
+                    const next = !eyeFollower?.enabled;
+                    const updated = { enabled: next, eyes: eyeFollower?.eyes ?? [] };
+                    obj.data = { ...obj.data, eyeFollower: updated };
+                    setEyeFollower(updated);
+                    canvas?.renderAll();
+                    if (next && onStartEyePlacement) onStartEyePlacement();
+                  }}
+                  className="text-xs px-1.5 py-0.5 rounded font-medium transition-colors"
+                  style={{
+                    background: eyeFollower?.enabled ? 'var(--accent-dim)' : 'var(--bg-section)',
+                    color:      eyeFollower?.enabled ? 'var(--accent)'     : 'var(--text-secondary)',
+                  }}
+                >
+                  {eyeFollower?.enabled ? 'On' : 'Off'}
+                </button>
+              </div>
+
+              {eyeFollower?.enabled && (
+                <>
+                  <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    {!eyeFollower.eyes?.length
+                      ? '👆 Click on the image to mark eye positions (up to 2)'
+                      : eyeFollower.eyes.length === 1
+                      ? '1 eye placed — click again for a second eye'
+                      : `✓ ${eyeFollower.eyes.length} eyes placed — cursor will follow`}
+                  </p>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={onStartEyePlacement}
+                      className="flex-1 text-xs py-1.5 rounded transition-colors"
+                      style={{ background: 'var(--bg-section)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
+                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                    >
+                      {eyeFollower.eyes?.length ? 'Reposition' : 'Place eyes'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const obj = selectedObject as any;
+                        const updated = { enabled: false, eyes: [] };
+                        obj.data = { ...obj.data, eyeFollower: updated };
+                        setEyeFollower(updated);
+                        canvas?.renderAll();
+                      }}
+                      className="text-xs py-1.5 px-2.5 rounded"
+                      style={{ background: 'rgba(240,82,82,0.07)', color: 'var(--danger)', border: '1px solid rgba(240,82,82,0.2)' }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
