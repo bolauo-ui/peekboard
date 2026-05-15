@@ -34,8 +34,8 @@ export default function ForgotPassword() {
                 d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Forgot password</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+          <h1 className="text-2xl" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Forgot password</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
             We'll email you a link to set a new one.
           </p>
         </div>
@@ -43,7 +43,7 @@ export default function ForgotPassword() {
         {sent ? (
           <div className="rounded-xl p-6 text-center"
             style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-            <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+            <p className="text-sm" style={{ color: 'var(--text-primary)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
               If an account exists for <strong>{email}</strong>, we just sent a reset link.
               It expires in an hour.
             </p>

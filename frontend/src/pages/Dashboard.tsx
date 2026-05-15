@@ -400,8 +400,8 @@ export default function Dashboard() {
 
         <div className="flex items-center justify-between mb-6 gap-4">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-gray-900">My Boards</h2>
-            <p className="text-sm text-gray-400 mt-0.5">Upload motion assets and add text overlays</p>
+            <h2 className="text-xl text-gray-900" style={{ fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>My Boards</h2>
+            <p className="text-sm text-gray-400 mt-0.5" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>Upload motion assets and add text overlays</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <div className="relative">
@@ -653,8 +653,8 @@ function WelcomePanel({ firstName, onCreate }: { firstName: string; onCreate: (n
           Welcome
         </span>
       </div>
-      <h2 className="text-2xl font-bold text-gray-900">Hi {firstName} 👋 — let's get you set up.</h2>
-      <p className="text-sm text-gray-500 mt-1.5 max-w-xl">
+      <h2 className="text-2xl text-gray-900" style={{ fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Hi {firstName} 👋 — let's get you set up.</h2>
+      <p className="text-sm text-gray-500 mt-1.5 max-w-xl" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
         Peekboard is a collaborative canvas for motion + design reviews. Pick a template to start with, or open a blank board.
       </p>
 
@@ -668,12 +668,12 @@ function WelcomePanel({ firstName, onCreate }: { firstName: string; onCreate: (n
           >
             <span className="text-2xl block mb-1.5">{t.emoji}</span>
             <span className="block text-sm font-semibold text-gray-900">{t.name}</span>
-            <span className="block text-xs text-gray-500 mt-0.5">{t.caption}</span>
+            <span className="block text-xs text-gray-500 mt-0.5" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>{t.caption}</span>
           </button>
         ))}
       </div>
 
-      <ul className="mt-8 space-y-1.5 text-sm text-gray-500">
+      <ul className="mt-8 space-y-1.5 text-sm text-gray-500" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
         <li>① Create a board → drop in GIFs, images, or videos.</li>
         <li>② Click the speech-bubble icon to leave pinned comments.</li>
         <li>③ Hit <em>Share</em> to invite teammates by email.</li>

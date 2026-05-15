@@ -30,8 +30,8 @@ export default function UseCaseModal({ user, onSave, onSkip }: Props) {
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
       <div className="rounded-2xl w-full max-w-lg p-6" style={{ background: '#ffffff', color: '#1f2024' }}>
-        <h2 className="text-xl font-bold">How will you use Peekboard?</h2>
-        <p className="text-sm mt-1" style={{ color: '#6b7280' }}>
+        <h2 className="text-xl" style={{ fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>How will you use Peekboard?</h2>
+        <p className="text-sm mt-1" style={{ color: '#6b7280', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
           Hi {user.name.split(' ')[0]} — a quick one so we can tailor the dashboard.
         </p>
 

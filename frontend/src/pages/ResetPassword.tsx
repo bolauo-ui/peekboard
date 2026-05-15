@@ -36,8 +36,8 @@ export default function ResetPassword() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#111111' }}>
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Set a new password</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+          <h1 className="text-2xl" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Set a new password</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
             Choose something you'll remember. We'll sign you in right after.
           </p>
         </div>

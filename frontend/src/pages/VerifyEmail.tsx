@@ -27,14 +27,14 @@ export default function VerifyEmail() {
         {status === 'loading' && (
           <>
             <Loader size={32} className="mx-auto animate-spin mb-3" style={{ color: 'var(--accent)' }} />
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Confirming your email…</p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>Confirming your email…</p>
           </>
         )}
         {status === 'ok' && (
           <>
             <CheckCircle2 size={48} className="mx-auto mb-3" style={{ color: '#34d399' }} />
-            <h1 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Email confirmed</h1>
-            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
+            <h1 className="text-xl mb-1" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Email confirmed</h1>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
               Thanks — your account is now fully active.
             </p>
             <button
@@ -49,8 +49,8 @@ export default function VerifyEmail() {
         {status === 'fail' && (
           <>
             <XCircle size={48} className="mx-auto mb-3" style={{ color: 'var(--danger)' }} />
-            <h1 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Verification failed</h1>
-            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>{msg}</p>
+            <h1 className="text-xl mb-1" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Verification failed</h1>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>{msg}</p>
             <Link to="/dashboard" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
               Go to dashboard
             </Link>
