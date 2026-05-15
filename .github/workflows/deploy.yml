@@ -18,9 +18,6 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy
-        run: railway up --detach
+        run: railway up --service peekboard --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: 415cfddb-9c0c-4990-b0e3-fda4c0947719
-          RAILWAY_SERVICE_ID: 8d72bbb4-7dcc-420a-99fe-07f76117345e
-          RAILWAY_ENVIRONMENT_ID: 2baa2df6-4bb5-42d9-ac71-a32c5513ebf3
