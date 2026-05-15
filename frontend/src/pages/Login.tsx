@@ -78,12 +78,12 @@ export default function Login() {
     }}>
       {/* ── Left column: form ──────────────────────────────────────────────── */}
       <div style={{
-        width: 'clamp(360px, 45%, 560px)',
-        flexShrink: 0,
+        flex: 1,
         display: 'flex',
         flexDirection: 'column',
         padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
         justifyContent: 'space-between',
+        minWidth: 0,
       }}>
         {/* Logo — icon + wordmark, pinned top-left */}
         <img
