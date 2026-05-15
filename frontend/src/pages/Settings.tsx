@@ -5,7 +5,7 @@ import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import AvatarImage from '@/components/AvatarImage';
 
-const AVATAR_COLORS = ['#1BAFD8','#1BAFD8','#1BAFD8','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444','#14b8a6'];
+const AVATAR_COLORS = ['#1BAFD8','#38bdf8','#818cf8','#ec4899','#f97316','#10b981','#3b82f6','#f59e0b','#ef4444','#14b8a6'];
 
 export default function Settings() {
   const { user, setAuth, token, clearAuth } = useAuthStore();
