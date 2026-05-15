@@ -1218,7 +1218,10 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         } as any);
 
         canvas.add(fabricImg);
-        canvas.sendToBack(fabricImg);
+        // Only push new (not restored) GIFs to the back so they sit behind
+        // any text / shapes already on the canvas.  Restored GIFs keep their
+        // original stacking order so they aren't buried under frame rects.
+        if (!saved?.id) canvas.sendToBack(fabricImg);
         canvas.requestRenderAll();
 
         if (!saved?.id) {
