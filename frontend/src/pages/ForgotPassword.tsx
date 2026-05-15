@@ -12,8 +12,6 @@ export default function ForgotPassword() {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      // Backend returns success even for unknown emails (to avoid leaking
-      // which addresses exist), so we always land on the confirmation panel.
       await authApi.forgot(email.trim());
       setSent(true);
     } catch (err: any) {
@@ -22,64 +20,166 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#111111' }}>
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl mb-4"
-            style={{ background: 'var(--accent)' }}>
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h1 className="text-2xl" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Forgot password</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
+    <div style={{
+      minHeight: '100vh',
+      background: '#e8e6e0',
+      display: 'flex',
+      fontFamily: 'Inter, sans-serif',
+    }}>
+      {/* ── Left column: form ──────────────────────────────────────────────── */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
+        justifyContent: 'space-between',
+        minWidth: 0,
+      }}>
+        {/* Logo */}
+        <img
+          src="/peekboard-logo-full.svg"
+          alt="Peekboard"
+          style={{ height: 24, width: 'auto', display: 'block', alignSelf: 'flex-start' }}
+        />
+
+        {/* Form area */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 48, paddingBottom: 32 }}>
+
+          {/* Heading */}
+          <h1 style={{
+            fontFamily: '"Crimson Pro", Georgia, serif',
+            fontWeight: 400,
+            fontSize: 'clamp(36px, 3.5vw, 48px)',
+            letterSpacing: '-0.05em',
+            lineHeight: 1.0,
+            color: '#0a0a0a',
+            margin: '0 0 8px 0',
+          }}>
+            Forgot password 🔑
+          </h1>
+          <p style={{
+            fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif',
+            fontWeight: 400,
+            fontSize: 16,
+            letterSpacing: '-0.03em',
+            color: '#555',
+            margin: '0 0 36px 0',
+          }}>
             We'll email you a link to set a new one.
           </p>
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              marginBottom: 16, padding: '10px 14px', borderRadius: 8,
+              background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)',
+              fontSize: 13, color: '#dc2626',
+            }}>
+              {error}
+            </div>
+          )}
+
+          {sent ? (
+            /* Confirmation state */
+            <div style={{
+              padding: '20px 24px', borderRadius: 14,
+              background: 'rgba(22,163,74,0.06)', border: '1px solid rgba(22,163,74,0.2)',
+              display: 'flex', flexDirection: 'column', gap: 12,
+            }}>
+              <p style={{ fontSize: 14, color: '#166534', margin: 0, lineHeight: 1.5, fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', letterSpacing: '-0.03em' }}>
+                If an account exists for <strong>{email}</strong>, we just sent a reset link. It expires in an hour.
+              </p>
+              <Link to="/login" style={{ fontSize: 13, color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}>
+                ← Back to sign in
+              </Link>
+            </div>
+          ) : (
+            /* Request form */
+            <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 500, color: '#0a0a0a' }}>Email</label>
+                <input
+                  type="email" required autoFocus
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  style={{
+                    width: '100%',
+                    padding: '11px 14px',
+                    borderRadius: 10,
+                    border: '1.5px solid #d4d2cc',
+                    background: '#fff',
+                    fontSize: 14,
+                    color: '#0a0a0a',
+                    outline: 'none',
+                    fontFamily: 'Inter, sans-serif',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.15s',
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '13px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: '#0a0a0a',
+                  color: '#fff',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.5 : 1,
+                  fontFamily: 'Inter, sans-serif',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#2a2a2a'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#0a0a0a'; }}
+              >
+                {loading ? 'Sending…' : 'Send reset link'}
+              </button>
+
+              <p style={{ margin: 0, fontSize: 14, color: '#666', textAlign: 'center' }}>
+                Remembered it?{' '}
+                <Link to="/login" style={{ color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}>
+                  Back to sign in
+                </Link>
+              </p>
+            </form>
+          )}
         </div>
 
-        {sent ? (
-          <div className="rounded-xl p-6 text-center"
-            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-            <p className="text-sm" style={{ color: 'var(--text-primary)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
-              If an account exists for <strong>{email}</strong>, we just sent a reset link.
-              It expires in an hour.
-            </p>
-            <Link to="/login" className="inline-block mt-5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
-              Back to sign in
-            </Link>
-          </div>
-        ) : (
-          <form onSubmit={submit}
-            className="rounded-xl p-6 space-y-4"
-            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-            {error && (
-              <div className="text-xs px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(240,82,82,0.1)', border: '1px solid rgba(240,82,82,0.25)', color: 'var(--danger)' }}>
-                {error}
-              </div>
-            )}
-            <div>
-              <label className="panel-label">Email</label>
-              <input
-                type="email" required autoFocus
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="panel-input" placeholder="you@company.com"
-              />
-            </div>
-            <button type="submit" disabled={loading}
-              className="w-full py-2.5 rounded-lg font-semibold text-sm text-white disabled:opacity-50"
-              style={{ background: 'var(--accent)' }}>
-              {loading ? 'Sending…' : 'Send reset link'}
-            </button>
-            <p className="text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-              Remembered it? <Link to="/login" style={{ color: 'var(--accent)' }}>Back to sign in</Link>
-            </p>
-          </form>
-        )}
+        {/* Footer */}
+        <p style={{ fontSize: 11, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          © 2026 All rights reserved
+        </p>
+      </div>
+
+      {/* ── Right column: cat video ─────────────────────────────────────────── */}
+      <div style={{
+        flex: 1,
+        padding: 'clamp(16px, 2vw, 24px)',
+        display: 'flex',
+        alignItems: 'stretch',
+        minWidth: 0,
+      }}>
+        <div style={{
+          flex: 1,
+          borderRadius: 24,
+          overflow: 'hidden',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
+        }}>
+          <video
+            autoPlay muted loop playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          >
+            <source src="/cat-login.webm" type="video/webm" />
+            <source src="/cat-login.mp4"  type="video/mp4" />
+          </video>
+        </div>
       </div>
     </div>
   );
