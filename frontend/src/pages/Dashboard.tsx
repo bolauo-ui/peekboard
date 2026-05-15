@@ -391,35 +391,35 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-6 gap-4">
+        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div className="min-w-0">
             <h2 className="text-xl text-gray-900" style={{ fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>My Boards</h2>
             <p className="text-sm text-gray-400 mt-0.5" style={{ fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>Upload motion assets and add text overlays</p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="relative">
+          <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
+            <div className="relative hidden sm:block">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search boards"
-                className="text-sm rounded-md pl-7 pr-2 py-1.5 outline-none w-48 bg-white border border-gray-200 focus:border-gray-300"
+                className="text-sm rounded-md pl-7 pr-2 py-1.5 outline-none w-40 lg:w-48 bg-white border border-gray-200 focus:border-gray-300"
               />
             </div>
             <button
               onClick={() => setPaletteOpen(true)}
               title="Quick switcher (⌘K)"
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 rounded-md hover:bg-gray-100 transition-colors hidden sm:flex"
             >
               <Command size={12} /> K
             </button>
           </div>
           <button onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-colors"
+            className="flex items-center gap-1.5 text-sm font-semibold px-3 sm:px-4 py-2 rounded-lg text-white transition-colors flex-shrink-0"
             style={{ background: 'var(--accent)' }}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
-            <Plus size={15} /> New board
+            <Plus size={15} /><span className="hidden sm:inline">New board</span><span className="sm:hidden">New</span>
           </button>
         </div>
 

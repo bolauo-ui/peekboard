@@ -131,6 +131,42 @@
 /* ── Range slider accent ── */
 input[type="range"] { accent-color: var(--accent); }
 
+/* ── Auth pages: responsive two-column layout ────────────────────────────── */
+.auth-form-col {
+  flex: 0 0 50%;
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px);
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+.auth-video-col {
+  flex: 0 0 50%;
+  width: 50%;
+  padding: clamp(16px, 2vw, 24px);
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+
+@media (max-width: 767px) {
+  .auth-form-col {
+    flex: 0 0 100%;
+    width: 100%;
+    padding: 24px 24px 32px;
+  }
+  .auth-video-col {
+    display: none;
+  }
+}
+
+/* ── Toolbar: hide text labels on small screens ──────────────────────────── */
+@media (max-width: 767px) {
+  .toolbar-label { display: none; }
+  .toolbar-board-name { max-width: 80px !important; }
+}
+
 /* ── Color swatch ── */
 .color-swatch {
   width: 100%; height: 28px;

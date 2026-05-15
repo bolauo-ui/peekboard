@@ -94,7 +94,7 @@ export default function Toolbar({
         onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
       >
         <ChevronLeft size={14} style={{ color: 'var(--text-muted)' }} />
-        <span className="max-w-[140px] truncate">{boardName}</span>
+        <span className="toolbar-board-name max-w-[140px] truncate hidden sm:inline">{boardName}</span>
       </button>
 
       {/* Layers toggle */}
@@ -159,7 +159,7 @@ export default function Toolbar({
 
       {/* Save status */}
       {saveStatus && (
-        <span className="text-xs font-medium mr-1 flex-shrink-0" style={{
+        <span className="text-xs font-medium mr-1 flex-shrink-0 hidden sm:inline" style={{
           color: saveStatus === 'saved' ? '#34d399' : saveStatus === 'saving' ? '#fbbf24' : '#f05252'
         }}>
           {saveStatus === 'saved'   && '✓ Saved'}
@@ -168,42 +168,42 @@ export default function Toolbar({
         </span>
       )}
 
-      {/* Role badge */}
+      {/* Role badge — hidden on mobile */}
       <span
-        className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize flex-shrink-0"
+        className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize flex-shrink-0 hidden sm:inline"
         style={{ background: ROLE_COLOR[role] ?? 'var(--bg-hover)', color: ROLE_TEXT[role] ?? '#888' }}
       >
         {role}
       </span>
 
-      <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--border)' }} />
+      <div className="w-px h-5 mx-1 flex-shrink-0 hidden sm:block" style={{ background: 'var(--border)' }} />
 
-      {/* Export */}
+      {/* Export — icon only on mobile */}
       <button
         title="Export frame as PNG"
         onClick={onExport}
-        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
+        className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
         style={{ color: 'var(--text-secondary)' }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
       >
         <Download size={13} />
-        Export
+        <span className="hidden sm:inline">Export</span>
       </button>
 
-      {/* Share */}
+      {/* Share — icon only on mobile */}
       {onShare && role === 'owner' && (
         <>
           <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--border)' }} />
           <button
             onClick={onShare}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md font-semibold text-white transition-colors flex-shrink-0"
+            className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md font-semibold text-white transition-colors flex-shrink-0"
             style={{ background: 'var(--accent)' }}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
           >
             <Users size={13} />
-            Share
+            <span className="hidden sm:inline">Share</span>
           </button>
         </>
       )}

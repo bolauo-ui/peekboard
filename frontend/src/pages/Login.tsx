@@ -77,15 +77,7 @@ export default function Login() {
       fontFamily: 'Inter, sans-serif',
     }}>
       {/* ── Left column: form ──────────────────────────────────────────────── */}
-      <div style={{
-        flex: '0 0 50%',
-        width: '50%',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
-        justifyContent: 'space-between',
-        boxSizing: 'border-box',
-      }}>
+      <div className="auth-form-col">
         {/* Logo — icon + wordmark, pinned top-left */}
         <img
           src="/peekboard-logo-full.svg"
@@ -222,14 +214,7 @@ export default function Login() {
       </div>
 
       {/* ── Right column: cat video ─────────────────────────────────────────── */}
-      <div style={{
-        flex: '0 0 50%',
-        width: '50%',
-        padding: 'clamp(16px, 2vw, 24px)',
-        display: 'flex',
-        alignItems: 'stretch',
-        boxSizing: 'border-box',
-      }}>
+      <div className="auth-video-col">
         <div style={{
           flex: 1,
           borderRadius: 24,
