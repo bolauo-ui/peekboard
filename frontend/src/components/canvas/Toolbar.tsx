@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers } from 'lucide-react';
+import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers, Layout } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { Tool } from '@/types';
 import { uploadApi } from '@/lib/api';
 
@@ -42,6 +43,7 @@ export default function Toolbar({
   saveStatus, showLayers, onToggleLayers, onShare,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
   const uploadingRef = useRef(false);
 
   const canEdit    = role === 'owner' || role === 'editor';
@@ -175,6 +177,21 @@ export default function Toolbar({
       >
         {role}
       </span>
+
+      <div className="w-px h-5 mx-1 flex-shrink-0 hidden sm:block" style={{ background: 'var(--border)' }} />
+
+      {/* Mockups */}
+      <button
+        title="Preview in Mockup"
+        onClick={() => navigate('/mockups')}
+        className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
+        style={{ color: 'var(--text-secondary)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+      >
+        <Layout size={13} />
+        <span className="hidden sm:inline toolbar-label">Mockups</span>
+      </button>
 
       <div className="w-px h-5 mx-1 flex-shrink-0 hidden sm:block" style={{ background: 'var(--border)' }} />
 
