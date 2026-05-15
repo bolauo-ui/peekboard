@@ -78,12 +78,13 @@ export default function Login() {
     }}>
       {/* ── Left column: form ──────────────────────────────────────────────── */}
       <div style={{
-        flex: 1,
+        flex: '0 0 50%',
+        width: '50%',
         display: 'flex',
         flexDirection: 'column',
         padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
         justifyContent: 'space-between',
-        minWidth: 0,
+        boxSizing: 'border-box',
       }}>
         {/* Logo — icon + wordmark, pinned top-left */}
         <img
@@ -222,11 +223,12 @@ export default function Login() {
 
       {/* ── Right column: cat video ─────────────────────────────────────────── */}
       <div style={{
-        flex: 1,
+        flex: '0 0 50%',
+        width: '50%',
         padding: 'clamp(16px, 2vw, 24px)',
         display: 'flex',
         alignItems: 'stretch',
-        minWidth: 0,
+        boxSizing: 'border-box',
       }}>
         <div style={{
           flex: 1,
