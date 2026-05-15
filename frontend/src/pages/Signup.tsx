@@ -145,7 +145,7 @@ export default function Signup() {
             Already have an account?{' '}
             <Link
               to={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
-              style={{ color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}
+              style={{ color: '#3a3a3a', fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: '2px' }}
             >
               Sign in
             </Link>

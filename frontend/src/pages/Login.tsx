@@ -168,7 +168,7 @@ export default function Login() {
                 <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                   style={inputStyle} placeholder="••••••••" required />
                 <div style={{ textAlign: 'right', marginTop: 4 }}>
-                  <Link to="/forgot-password" style={{ fontSize: 13, color: '#1BAFD8', textDecoration: 'none' }}>
+                  <Link to="/forgot-password" style={{ fontSize: 13, color: '#3a3a3a', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
                     Forgot Password?
                   </Link>
                 </div>
@@ -200,7 +200,7 @@ export default function Login() {
             Don't you have an account?{' '}
             <Link
               to={inviteToken ? `/signup?invite=${inviteToken}` : '/signup'}
-              style={{ color: '#1BAFD8', fontWeight: 500, textDecoration: 'none' }}
+              style={{ color: '#3a3a3a', fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: '2px' }}
             >
               Sign up
             </Link>
