@@ -3,21 +3,24 @@
 // mediaItems + viewport). Hand-crafted rather than rendered, so we don't
 // need to spin up a headless canvas server-side.
 //
-// Important: use `textbox` (not `i-text`) for any multi-line copy — Fabric.js
-// only wraps text automatically with the textbox type.
+// Fonts: "Playfair Display" (serif) for all text — loaded via Google Fonts
+// in index.css.  Falls back to Georgia → serif if not yet downloaded.
+//
+// Important: use `textbox` (not `i-text`) for multi-line copy — Fabric.js
+// only wraps text at a given width with the textbox type.
+
+const SERIF = '"Playfair Display", Georgia, serif';
 
 export function makeWelcomeCanvas(displayName: string): string {
   const first = displayName.split(' ')[0] || 'there';
 
   // ── Frame ─────────────────────────────────────────────────────────────────
-  // White rounded card. Height is generous enough to hold all text at any
-  // typical font-rendering size.
   const introFrame = {
     type: 'rect',
     version: '5.3.0',
     originX: 'left', originY: 'top',
     left: 80, top: 70,
-    width: 820, height: 620,
+    width: 820, height: 640,
     fill: '#ffffff',
     stroke: '#e5e7eb', strokeWidth: 1,
     rx: 16, ry: 16,
@@ -26,28 +29,28 @@ export function makeWelcomeCanvas(displayName: string): string {
   };
 
   // ── Title ─────────────────────────────────────────────────────────────────
-  // Sits 18 px below the cat GIF (GIF: top=110, height=170 → bottom=280)
+  // 18 px gap below the cat GIF (top=110, height=170 → bottom=280)
   const title = {
     type: 'i-text',
     version: '5.3.0',
     left: 140, top: 298,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 40, fontWeight: 700,
+    fontFamily: SERIF,
+    fontSize: 48, fontWeight: 700,
     fill: '#111827',
     text: `Welcome, ${first} 👋`,
     selectable: true, evented: true,
     data: { id: 'welcome-title', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Subtitle — textbox so it word-wraps at 640 px ─────────────────────────
+  // ── Subtitle — textbox wraps at 640 px ────────────────────────────────────
   const subtitle = {
     type: 'textbox',
     version: '5.3.0',
-    left: 140, top: 356,
+    left: 140, top: 375,
     width: 640,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 14, lineHeight: 1.55,
-    fill: '#374151',
+    fontFamily: SERIF,
+    fontSize: 16, lineHeight: 1.6,
+    fill: '#1f2937',
     text: 'This is a Peekboard. Drop in GIFs, images, or videos. Frame and group your content. Leave pinned comments. Share it with anyone.',
     selectable: true, evented: true,
     data: { id: 'welcome-subtitle', objectType: 'text', frameId: 'intro-frame' },
@@ -57,24 +60,24 @@ export function makeWelcomeCanvas(displayName: string): string {
   const tipsHeader = {
     type: 'i-text',
     version: '5.3.0',
-    left: 140, top: 442,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 14, fontWeight: 700,
+    left: 140, top: 484,
+    fontFamily: SERIF,
+    fontSize: 16, fontWeight: 700,
     fill: '#111827',
     text: 'Quick Tips',
     selectable: true, evented: true,
     data: { id: 'tips-header', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Tips body — textbox so long lines wrap instead of overflowing ─────────
+  // ── Tips body — textbox so long lines wrap ────────────────────────────────
   const tips = {
     type: 'textbox',
     version: '5.3.0',
-    left: 140, top: 466,
+    left: 140, top: 516,
     width: 640,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 13, lineHeight: 1.65,
-    fill: '#374151',
+    fontFamily: SERIF,
+    fontSize: 16, lineHeight: 1.65,
+    fill: '#1f2937',
     text:
       '• Drag a file (GIF / image / video) anywhere onto the canvas.\n' +
       '• Press F to draw a frame and group your content inside it.\n' +
@@ -84,13 +87,13 @@ export function makeWelcomeCanvas(displayName: string): string {
     data: { id: 'tips-body', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Callout — sits below the card ─────────────────────────────────────────
+  // ── Callout — below the card ──────────────────────────────────────────────
   const callout = {
     type: 'i-text',
     version: '5.3.0',
-    left: 80, top: 716,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 13,
+    left: 80, top: 742,
+    fontFamily: SERIF,
+    fontSize: 14,
     fill: '#2563eb',
     fontStyle: 'italic',
     text: 'Delete this board any time — it\'s yours.',
@@ -105,8 +108,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     objects: [introFrame, title, subtitle, tipsHeader, tips, callout],
   };
 
-  // ── Cat GIF — 340×340 source, displayed at 170×170 (scaleX/Y = 0.5) ──────
-  // Positioned in the top-left corner of the frame with 60 px padding.
+  // ── Cat GIF — 340×340 source, displayed at 170×170 ───────────────────────
   const catGifItem = {
     id:     'welcome-cat-gif',
     type:   'gif',
