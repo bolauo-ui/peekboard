@@ -36,7 +36,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     version: '5.3.0',
     left: 140, top: 298,
     fontFamily: SERIF,
-    fontSize: 48, fontWeight: 700,
+    fontSize: 48, fontWeight: 400,
     fill: '#111827',
     text: `Welcome, ${first} 👋`,
     selectable: true, evented: true,
