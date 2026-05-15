@@ -109,7 +109,7 @@ export default function LandingPage() {
             <p style={{
               fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif',
               fontWeight: 400,
-              fontSize: 'clamp(15px, 1.3vw, 17px)',
+              fontSize: 'clamp(17px, 1.3vw, 19px)',
               lineHeight: 1.2,
               letterSpacing: '-0.03em',
               color: '#444',
