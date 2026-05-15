@@ -3,13 +3,14 @@
 // mediaItems + viewport). Hand-crafted rather than rendered, so we don't
 // need to spin up a headless canvas server-side.
 //
-// Fonts: "Playfair Display" (serif) for all text — loaded via Google Fonts
-// in index.css.  Falls back to Georgia → serif if not yet downloaded.
+// Fonts: "Crimson Pro" (serif) for the title, "Inter" for body copy —
+// both loaded via Google Fonts in index.css.
 //
 // Important: use `textbox` (not `i-text`) for multi-line copy — Fabric.js
 // only wraps text at a given width with the textbox type.
 
-const SERIF = '"Playfair Display", Georgia, serif';
+const SERIF = '"Crimson Pro", Georgia, serif';
+const SANS  = '"Inter", system-ui, sans-serif';
 
 export function makeWelcomeCanvas(displayName: string): string {
   const first = displayName.split(' ')[0] || 'there';
@@ -28,7 +29,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     data: { id: 'intro-frame', type: 'frame', objectType: 'frame', frameName: 'Welcome' },
   };
 
-  // ── Title ─────────────────────────────────────────────────────────────────
+  // ── Title — Crimson Pro serif ─────────────────────────────────────────────
   // 18 px gap below the cat GIF (top=110, height=170 → bottom=280)
   const title = {
     type: 'i-text',
@@ -42,41 +43,41 @@ export function makeWelcomeCanvas(displayName: string): string {
     data: { id: 'welcome-title', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Subtitle — textbox wraps at 640 px ────────────────────────────────────
+  // ── Subtitle — Inter, textbox wraps at 640 px ─────────────────────────────
   const subtitle = {
     type: 'textbox',
     version: '5.3.0',
     left: 140, top: 375,
     width: 640,
-    fontFamily: SERIF,
-    fontSize: 16, lineHeight: 1.6,
+    fontFamily: SANS,
+    fontSize: 15, lineHeight: 1.6,
     fill: '#1f2937',
     text: 'This is a Peekboard. Drop in GIFs, images, or videos. Frame and group your content. Leave pinned comments. Share it with anyone.',
     selectable: true, evented: true,
     data: { id: 'welcome-subtitle', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Tips header ───────────────────────────────────────────────────────────
+  // ── Tips header — Inter bold ──────────────────────────────────────────────
   const tipsHeader = {
     type: 'i-text',
     version: '5.3.0',
-    left: 140, top: 484,
-    fontFamily: SERIF,
-    fontSize: 16, fontWeight: 700,
+    left: 140, top: 472,
+    fontFamily: SANS,
+    fontSize: 15, fontWeight: 600,
     fill: '#111827',
     text: 'Quick Tips',
     selectable: true, evented: true,
     data: { id: 'tips-header', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Tips body — textbox so long lines wrap ────────────────────────────────
+  // ── Tips body — Inter, textbox so long lines wrap ─────────────────────────
   const tips = {
     type: 'textbox',
     version: '5.3.0',
-    left: 140, top: 516,
+    left: 140, top: 502,
     width: 640,
-    fontFamily: SERIF,
-    fontSize: 16, lineHeight: 1.65,
+    fontFamily: SANS,
+    fontSize: 15, lineHeight: 1.65,
     fill: '#1f2937',
     text:
       '• Drag a file (GIF / image / video) anywhere onto the canvas.\n' +
@@ -87,12 +88,12 @@ export function makeWelcomeCanvas(displayName: string): string {
     data: { id: 'tips-body', objectType: 'text', frameId: 'intro-frame' },
   };
 
-  // ── Callout — below the card ──────────────────────────────────────────────
+  // ── Callout — Inter italic, below the card ────────────────────────────────
   const callout = {
     type: 'i-text',
     version: '5.3.0',
     left: 80, top: 742,
-    fontFamily: SERIF,
+    fontFamily: SANS,
     fontSize: 14,
     fill: '#2563eb',
     fontStyle: 'italic',
