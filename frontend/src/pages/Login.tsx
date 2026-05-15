@@ -82,14 +82,14 @@ export default function Login() {
         flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
-        padding: 'clamp(32px, 4vw, 56px) clamp(32px, 5vw, 72px)',
+        padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
         justifyContent: 'space-between',
       }}>
-        {/* Logo */}
+        {/* Logo — icon + wordmark, pinned top-left */}
         <img
-          src="/peekboard-logo.svg"
+          src="/peekboard-logo-full.svg"
           alt="Peekboard"
-          style={{ height: 22, width: 'auto', display: 'block' }}
+          style={{ height: 24, width: 'auto', display: 'block', alignSelf: 'flex-start' }}
         />
 
         {/* Form area */}
