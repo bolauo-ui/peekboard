@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import PeekboardLogo from '@/components/PeekboardLogo';
 
 export default function LandingPage() {
   return (
@@ -40,11 +41,7 @@ export default function LandingPage() {
           borderBottom: '1px solid rgba(0,0,0,0.07)',
           flexShrink: 0,
         }}>
-          <img
-            src="/peekboard-logo.svg"
-            alt="Peekboard"
-            style={{ height: 22, width: 'auto', display: 'block' }}
-          />
+          <PeekboardLogo height={22} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Link to="/login" style={{

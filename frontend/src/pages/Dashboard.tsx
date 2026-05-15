@@ -12,6 +12,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 import UseCaseModal from '@/components/UseCaseModal';
 import AvatarImage from '@/components/AvatarImage';
+import PeekboardLogo from '@/components/PeekboardLogo';
 import NotificationsBell from '@/components/NotificationsBell';
 import ShareModal from '@/components/ShareModal';
 
@@ -256,7 +257,7 @@ export default function Dashboard() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center">
-          <img src="/peekboard-logo-full.svg" alt="Peekboard" style={{ height: 22, width: 'auto', display: 'block' }} />
+          <PeekboardLogo height={22} />
         </div>
         <div className="flex items-center gap-3">
           <NotificationsBell />

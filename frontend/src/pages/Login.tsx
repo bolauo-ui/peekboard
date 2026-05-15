@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+import PeekboardLogo from '@/components/PeekboardLogo';
 
 function getPostAuthRedirect(): string {
   const pending = localStorage.getItem('pending_invite');
@@ -79,11 +80,7 @@ export default function Login() {
       {/* ── Left column: form ──────────────────────────────────────────────── */}
       <div className="auth-form-col">
         {/* Logo — icon + wordmark, pinned top-left */}
-        <img
-          src="/peekboard-logo-full.svg"
-          alt="Peekboard"
-          style={{ height: 24, width: 'auto', display: 'block', alignSelf: 'flex-start' }}
-        />
+        <PeekboardLogo height={24} />
 
         {/* Form area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 48, paddingBottom: 32 }}>

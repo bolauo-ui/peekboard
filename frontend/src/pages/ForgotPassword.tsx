@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '@/lib/api';
+import PeekboardLogo from '@/components/PeekboardLogo';
 
 export default function ForgotPassword() {
   const [email,   setEmail]   = useState('');
@@ -29,11 +30,7 @@ export default function ForgotPassword() {
       {/* ── Left column: form ──────────────────────────────────────────────── */}
       <div className="auth-form-col">
         {/* Logo */}
-        <img
-          src="/peekboard-logo-full.svg"
-          alt="Peekboard"
-          style={{ height: 24, width: 'auto', display: 'block', alignSelf: 'flex-start' }}
-        />
+        <PeekboardLogo height={24} />
 
         {/* Form area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 48, paddingBottom: 32 }}>
