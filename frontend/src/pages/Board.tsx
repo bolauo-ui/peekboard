@@ -20,6 +20,7 @@ import VersionHistoryDrawer from '@/components/VersionHistoryDrawer';
 import LinkedInScorePanel from '@/components/LinkedInScorePanel';
 import { History, Linkedin } from 'lucide-react';
 import { setFaviconDot } from '@/lib/favicon';
+import CursorEyesOverlay from '@/components/canvas/CursorEyesOverlay';
 
 export default function Board() {
   const { id } = useParams<{ id: string }>();
@@ -61,6 +62,11 @@ export default function Board() {
   const [openPinId,       setOpenPinId]       = useState<string | null>(null);
   const [ctxMenu,         setCtxMenu]         = useState<{ x: number; y: number; target: fabric.Object } | null>(null);
   const [shortcutsOpen,   setShortcutsOpen]   = useState(false);
+
+  // Eye placement mode — when true, next canvas clicks add eye markers to
+  // the selected image instead of selecting objects.
+  const [placingEyes, setPlacingEyes] = useState(false);
+  const [eyeTick,     setEyeTick]     = useState(0);  // bumped after each eye is placed
 
   const editorRef  = useRef<CanvasEditorHandle>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
