@@ -50,93 +50,209 @@ export default function Signup() {
   }, [navigate, setAuth]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#111111' }}>
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl mb-4"
-            style={{ background: 'var(--accent)' }}>
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h1 className="text-2xl" style={{ color: 'var(--text-primary)', fontFamily: '"Crimson Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.05em' }}>Peekboard</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)', fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif', fontWeight: 400, letterSpacing: '-0.03em' }}>
-            {inviteToken ? 'Create an account to accept your board invite' : 'Create your account'}
+    <div style={{
+      minHeight: '100vh',
+      background: '#e8e6e0',
+      display: 'flex',
+      fontFamily: 'Inter, sans-serif',
+    }}>
+      {/* ── Left column: form ──────────────────────────────────────────────── */}
+      <div style={{
+        flex: '0 0 50%',
+        width: '50%',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 'clamp(32px, 4vw, 48px) clamp(32px, 5vw, 72px)',
+        justifyContent: 'space-between',
+        boxSizing: 'border-box',
+      }}>
+        {/* Logo */}
+        <img
+          src="/peekboard-logo-full.svg"
+          alt="Peekboard"
+          style={{ height: 24, width: 'auto', display: 'block', alignSelf: 'flex-start' }}
+        />
+
+        {/* Form area */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 48, paddingBottom: 32 }}>
+
+          {/* Heading */}
+          <h1 style={{
+            fontFamily: '"Crimson Pro", Georgia, serif',
+            fontWeight: 400,
+            fontSize: 'clamp(36px, 3.5vw, 48px)',
+            letterSpacing: '-0.05em',
+            lineHeight: 1.0,
+            color: '#0a0a0a',
+            margin: '0 0 8px 0',
+          }}>
+            Create account ✨
+          </h1>
+          <p style={{
+            fontFamily: '"Source Serif 4", "Source Serif Pro", Georgia, serif',
+            fontWeight: 400,
+            fontSize: 16,
+            letterSpacing: '-0.03em',
+            color: '#555',
+            margin: '0 0 36px 0',
+          }}>
+            {inviteToken ? 'Create an account to accept your board invite' : 'Start previewing your motion creatives'}
           </p>
-        </div>
 
-        {/* Invite context banner */}
-        {inviteToken && (
-          <div className="mb-4 px-4 py-3 rounded-xl text-sm text-center"
-            style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', color: 'rgba(255,255,255,0.8)' }}>
-            🎉 You've been invited to a board — create an account to join it.
-          </div>
-        )}
+          {/* Invite banner */}
+          {inviteToken && (
+            <div style={{
+              marginBottom: 20, padding: '10px 16px', borderRadius: 10,
+              background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+              fontSize: 13, color: '#4338ca',
+            }}>
+              🎉 You've been invited to a board — create an account to join it.
+            </div>
+          )}
 
-        <form onSubmit={handleSubmit}
-          className="rounded-xl p-6 space-y-4"
-          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+          {/* Error */}
           {error && (
-            <div className="text-xs px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(240,82,82,0.1)', border: '1px solid rgba(240,82,82,0.2)', color: 'var(--danger)' }}>
+            <div style={{
+              marginBottom: 16, padding: '10px 14px', borderRadius: 8,
+              background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)',
+              fontSize: 13, color: '#dc2626',
+            }}>
               {error}
             </div>
           )}
-          <Field label="Full name">
-            <input type="text" value={name} onChange={e => setName(e.target.value)}
-              className="panel-input" placeholder="Alex Smith" required autoFocus />
-          </Field>
-          <Field label="Email">
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-              className="panel-input" placeholder="you@company.com" required />
-          </Field>
-          <Field label="Password">
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="panel-input" placeholder="Min. 6 characters" required />
-          </Field>
-          <button type="submit" disabled={loading}
-            className="w-full py-2.5 rounded-lg font-semibold text-sm text-white disabled:opacity-50 transition-colors mt-1"
-            style={{ background: 'var(--accent)' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
-            {loading ? 'Creating account…' : 'Create account'}
-          </button>
 
-          <GoogleDivider />
-          <GoogleSignInButton onCredential={handleGoogle} onError={(err) => setError(err.message)} />
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <LField label="Full name">
+              <input type="text" value={name} onChange={e => setName(e.target.value)}
+                style={inputStyle} placeholder="Alex Smith" required autoFocus />
+            </LField>
 
-          <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>By signing up, you agree to our Terms of Service.</p>
-        </form>
+            <LField label="Email">
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                style={inputStyle} placeholder="you@company.com" required />
+            </LField>
 
-        <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
-          Already have an account?{' '}
-          <Link to={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
-            className="font-medium" style={{ color: 'var(--accent)' }}>Sign in</Link>
+            <LField label="Password">
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                style={inputStyle} placeholder="Min. 6 characters" required />
+            </LField>
+
+            <SubmitBtn disabled={loading}>
+              {loading ? 'Creating account…' : 'Create account'}
+            </SubmitBtn>
+
+            <GoogleDivider />
+            <GoogleSignInButton onCredential={handleGoogle} onError={err => setError(err.message)} />
+
+            <p style={{ margin: 0, fontSize: 12, textAlign: 'center', color: '#aaa' }}>
+              By signing up, you agree to our Terms of Service.
+            </p>
+          </form>
+
+          <p style={{ marginTop: 28, fontSize: 14, color: '#666' }}>
+            Already have an account?{' '}
+            <Link
+              to={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
+              style={{ color: '#4338ca', fontWeight: 500, textDecoration: 'none' }}
+            >
+              Sign in
+            </Link>
+          </p>
+        </div>
+
+        {/* Footer */}
+        <p style={{ fontSize: 11, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          © 2026 All rights reserved
         </p>
+      </div>
+
+      {/* ── Right column: cat video ─────────────────────────────────────────── */}
+      <div style={{
+        flex: '0 0 50%',
+        width: '50%',
+        padding: 'clamp(16px, 2vw, 24px)',
+        display: 'flex',
+        alignItems: 'stretch',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{
+          flex: 1,
+          borderRadius: 24,
+          overflow: 'hidden',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
+        }}>
+          <video
+            autoPlay muted loop playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          >
+            <source src="/cat-login.webm" type="video/webm" />
+            <source src="/cat-login.mp4"  type="video/mp4" />
+          </video>
+        </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '11px 14px',
+  borderRadius: 10,
+  border: '1.5px solid #d4d2cc',
+  background: '#fff',
+  fontSize: 14,
+  color: '#0a0a0a',
+  outline: 'none',
+  fontFamily: 'Inter, sans-serif',
+  boxSizing: 'border-box',
+  transition: 'border-color 0.15s',
+};
+
+function LField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="panel-label">{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ fontSize: 13, fontWeight: 500, color: '#0a0a0a' }}>{label}</label>
       {children}
     </div>
+  );
+}
+
+function SubmitBtn({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <button
+      type="submit"
+      disabled={disabled}
+      style={{
+        width: '100%',
+        padding: '13px',
+        borderRadius: 10,
+        border: 'none',
+        background: '#0a0a0a',
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        fontFamily: 'Inter, sans-serif',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = '#2a2a2a'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = '#0a0a0a'; }}
+    >
+      {children}
+    </button>
   );
 }
 
 function GoogleDivider() {
   if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null;
   return (
-    <div className="flex items-center gap-3 mt-2">
-      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>or</span>
-      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ flex: 1, height: 1, background: '#d4d2cc' }} />
+      <span style={{ fontSize: 11, color: '#999', textTransform: 'uppercase', letterSpacing: '0.06em' }}>or</span>
+      <div style={{ flex: 1, height: 1, background: '#d4d2cc' }} />
     </div>
   );
 }
