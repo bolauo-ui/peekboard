@@ -256,8 +256,15 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center">
+        <div className="flex items-center gap-4">
           <PeekboardLogo height={22} />
+          <button
+            onClick={() => navigate('/mockups')}
+            className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-md hover:bg-gray-100 transition-colors border border-gray-200"
+          >
+            <Layout size={14} />
+            <span>Mockups</span>
+          </button>
         </div>
         <div className="flex items-center gap-3">
           <NotificationsBell />
