@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, LogOut, Clock, Users, Trash2, MoreVertical, Copy, Settings as SettingsIcon,
   Sparkles, Search, Star, Command, AlertCircle, Folder, FolderPlus, FolderOpen,
-  Home, MoveRight, ExternalLink, Link as LinkIcon, Share2, History, Edit3,
+  Home, MoveRight, ExternalLink, Link as LinkIcon, Share2, History, Edit3, Layout,
 } from 'lucide-react';
 import { authApi, boardsApi, projectsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -283,6 +283,12 @@ export default function Dashboard() {
             onClick={() => setActiveProject(null)}
             icon={<Home size={13} />}
             label="All boards"
+          />
+          <SidebarLink
+            active={false}
+            onClick={() => navigate('/mockups')}
+            icon={<Layout size={13} />}
+            label="Mockups"
           />
           <SidebarLink
             active={false}

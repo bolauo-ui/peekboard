@@ -11,6 +11,7 @@ import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import VerifyEmail from '@/pages/VerifyEmail';
 import MagicLink from '@/pages/MagicLink';
+import Mockups from '@/pages/Mockups';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
         <Route path="/settings"        element={<PrivateRoute><Settings /></PrivateRoute>} />
+        <Route path="/mockups"         element={<PrivateRoute><Mockups /></PrivateRoute>} />
         <Route path="/verify-email"    element={<VerifyEmail />} />
         <Route path="/magic-link"      element={<MagicLink />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
