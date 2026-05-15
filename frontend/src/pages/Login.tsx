@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
+import { useState, useCallback, useEffect, FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -8,119 +8,6 @@ function getPostAuthRedirect(): string {
   const pending = localStorage.getItem('pending_invite');
   if (pending) return `/invite/${pending}`;
   return '/dashboard';
-}
-
-// ── Cat eye tracking overlay ─────────────────────────────────────────────────
-// The cat's eye in the 1264×720 source frame sits at roughly (670, 215).
-// We store it as a ratio so it scales with however large the video renders.
-const EYE_X_RATIO  = 0.530;
-const EYE_Y_RATIO  = 0.299;
-const IRIS_R_RATIO = 0.028; // iris radius as fraction of video width
-
-function CatEyeCanvas({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement> }) {
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const cursorRef  = useRef({ x: -9999, y: -9999 });
-  const smoothRef  = useRef({ x: -9999, y: -9999 });
-  const rafRef     = useRef<number>(0);
-  const tiltRef    = useRef({ x: 0, y: 0 });       // current tilt degrees (for head turn)
-  const tiltTgtRef = useRef({ x: 0, y: 0 });        // target tilt
-
-  /* Sync canvas size to video element */
-  useEffect(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    const sync = () => {
-      canvas.width  = video.clientWidth;
-      canvas.height = video.clientHeight;
-      canvas.style.width  = `${video.clientWidth}px`;
-      canvas.style.height = `${video.clientHeight}px`;
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(video);
-    return () => ro.disconnect();
-  }, [videoRef]);
-
-  /* Track cursor globally */
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => { cursorRef.current = { x: e.clientX, y: e.clientY }; };
-    window.addEventListener('mousemove', onMove);
-    return () => window.removeEventListener('mousemove', onMove);
-  }, []);
-
-  /* RAF draw loop */
-  useEffect(() => {
-    const draw = () => {
-      rafRef.current = requestAnimationFrame(draw);
-      const canvas = canvasRef.current;
-      const video  = videoRef.current;
-      if (!canvas || !video) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const k = 0.10;
-      smoothRef.current.x += (cursorRef.current.x - smoothRef.current.x) * k;
-      smoothRef.current.y += (cursorRef.current.y - smoothRef.current.y) * k;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const W = canvas.width;
-      const H = canvas.height;
-
-      // ── Head tilt (applied via CSS transform on video wrapper) ───────────
-      const rect    = canvas.getBoundingClientRect();
-      const cx      = rect.left + W / 2;
-      const cy      = rect.top  + H / 2;
-      const MAX_DEG = 5;
-      tiltTgtRef.current.x = ((smoothRef.current.y - cy) / (H / 2)) * -MAX_DEG;
-      tiltTgtRef.current.y = ((smoothRef.current.x - cx) / (W / 2)) *  MAX_DEG;
-      tiltRef.current.x += (tiltTgtRef.current.x - tiltRef.current.x) * 0.08;
-      tiltRef.current.y += (tiltTgtRef.current.y - tiltRef.current.y) * 0.08;
-      if (video.parentElement) {
-        video.parentElement.style.transform =
-          `perspective(900px) rotateX(${tiltRef.current.x.toFixed(2)}deg) rotateY(${tiltRef.current.y.toFixed(2)}deg)`;
-      }
-
-      // ── Pupil overlay ────────────────────────────────────────────────────
-      const irisR  = W * IRIS_R_RATIO;
-      const eyeSx  = W * EYE_X_RATIO;
-      const eyeSy  = H * EYE_Y_RATIO;
-
-      // Cursor in canvas-local space
-      const lx = smoothRef.current.x - rect.left;
-      const ly = smoothRef.current.y - rect.top;
-      const dx = lx - eyeSx, dy = ly - eyeSy;
-      const dist = Math.hypot(dx, dy) || 1;
-      const maxOffset = irisR * 0.42;
-      const t  = Math.min(dist, maxOffset) / dist;
-      const px = eyeSx + dx * t;
-      const py = eyeSy + dy * t;
-
-      // Draw dark pupil (sits on top of the painted yellow iris)
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(px, py, irisR * 0.38, irisR * 0.42, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#0a0b0d';
-      ctx.fill();
-      // Catch-light
-      ctx.beginPath();
-      ctx.ellipse(px - irisR * 0.11, py - irisR * 0.14, irisR * 0.1, irisR * 0.1, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.72)';
-      ctx.fill();
-      ctx.restore();
-    };
-
-    rafRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [videoRef]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}
-    />
-  );
 }
 
 // ── Main Login component ─────────────────────────────────────────────────────
@@ -135,7 +22,6 @@ export default function Login() {
   const { setAuth } = useAuthStore();
   const navigate    = useNavigate();
   const [searchParams] = useSearchParams();
-  const videoRef    = useRef<HTMLVideoElement>(null);
 
   const inviteToken = searchParams.get('invite');
   useEffect(() => {
@@ -346,20 +232,15 @@ export default function Login() {
           flex: 1,
           borderRadius: 24,
           overflow: 'hidden',
-          position: 'relative',
-          transformOrigin: 'center center',
-          transition: 'box-shadow 0.3s',
           boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
         }}>
           <video
-            ref={videoRef}
             autoPlay muted loop playsInline
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           >
             <source src="/cat-login.webm" type="video/webm" />
             <source src="/cat-login.mp4"  type="video/mp4" />
           </video>
-          <CatEyeCanvas videoRef={videoRef} />
         </div>
       </div>
     </div>
