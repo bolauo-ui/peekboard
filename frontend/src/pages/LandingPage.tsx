@@ -84,7 +84,7 @@ export default function LandingPage() {
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             borderRadius: 22,
-            padding: 'clamp(32px, 3.5vw, 50px) clamp(32px, 4vw, 56px)',
+            padding: 'clamp(28px, 3.5vw, 50px) clamp(20px, 4vw, 56px)',
             maxWidth: 520,
             width: '90%',
             boxShadow: '0 4px 48px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06)',
@@ -94,7 +94,7 @@ export default function LandingPage() {
             <h1 style={{
               fontFamily: '"Crimson Pro", Georgia, serif',
               fontWeight: 400,
-              fontSize: 60,
+              fontSize: 'clamp(30px, 8.5vw, 60px)',
               lineHeight: 0.81,
               letterSpacing: '-0.05em',
               color: '#0a0a0a',
