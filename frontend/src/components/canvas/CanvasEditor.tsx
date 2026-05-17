@@ -469,20 +469,22 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           const zoom   = canvas.getZoom();
           const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
 
-          // Output dimensions at 1× (gif-encoder-2 works at CSS pixel size)
-          const outW = Math.round(cropWidth);
-          const outH = Math.round(cropHeight);
+          // Output at a sensible fixed width (max 600px) so encoding stays fast
+          const MAX_W  = 600;
+          const scale  = cropWidth > MAX_W ? MAX_W / cropWidth : 1;
+          const outW   = Math.max(1, Math.round(cropWidth  * scale));
+          const outH   = Math.max(1, Math.round(cropHeight * scale));
 
-          // Capture ~3 s of animation at 10 fps = 30 frames
-          const FPS        = 10;
-          const DURATION_S = 3;
-          const FRAME_MS   = 1000 / FPS;
+          // 12 fps × 2 s = 24 frames — snappy capture, small file
+          const FPS        = 12;
+          const DURATION_S = 2;
+          const FRAME_MS   = Math.round(1000 / FPS);
           const TOTAL      = FPS * DURATION_S;
 
-          const encoder = new GIFEncoder(outW, outH, 'neuquant', true);
+          // 'octree' is O(n) vs neuquant's sampling — 5-10× faster encode
+          const encoder = new GIFEncoder(outW, outH, 'octree', true);
           encoder.setDelay(FRAME_MS);
-          encoder.setRepeat(0);     // loop forever
-          encoder.setQuality(10);   // 1=best, 20=fast
+          encoder.setRepeat(0);   // loop forever
           encoder.start();
 
           // Scratch canvas we composite each frame onto at output size
