@@ -79,25 +79,65 @@ const shell = (title: string, bodyHtml: string) => `<!doctype html>
 <body><div class="card">${bodyHtml}<p class="muted">— Peekboard</p></div></body></html>`;
 
 export function welcomeEmail(name: string, appUrl: string): MailMessage {
+  const first = escapeHtml(name.split(' ')[0] || 'there');
   return {
     to:      '',
-    subject: `Welcome to Peekboard, ${name.split(' ')[0]}`,
+    subject: `Welcome to Peekboard, ${name.split(' ')[0] || 'there'} 👋`,
     text:
-`Hi ${name.split(' ')[0]},
+`Hi ${name.split(' ')[0] || 'there'},
 
 Welcome to Peekboard — you're all set up.
 
-Jump in and create your first board: ${appUrl}/dashboard
+This is a Peekboard. Drop in GIFs, images, or videos. Frame and group your content. Leave pinned comments. Share it with anyone.
 
-If you didn't sign up, just ignore this email.
+Quick Tips
+• Drag a file (GIF / image / video) anywhere onto the canvas.
+• Press F to draw a frame and group your content inside it.
+• Click the speech-bubble in the toolbar to drop a pinned comment.
+• Press ? for the full keyboard shortcuts list.
+
+Open your dashboard: ${appUrl}/dashboard
+
+Delete this board any time — it's yours.
 
 — Peekboard`,
-    html: shell('Welcome', `
-      <h1>Welcome to Peekboard, ${escapeHtml(name.split(' ')[0])} 👋</h1>
-      <p>You're all set up. Drop in GIFs, leave pins, share boards — same flow as Figma, friendlier price.</p>
-      <p><a class="btn" href="${appUrl}/dashboard">Open your dashboard</a></p>
-      <p>If you didn't sign up, just ignore this email.</p>
-    `),
+    html: `<!doctype html>
+<html><head>
+  <meta charset="utf-8"/>
+  <title>Welcome to Peekboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400&family=Inter:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    body { background:#f0f0f0; margin:0; padding:32px 16px; font-family:'Inter',system-ui,sans-serif; color:#1f2937; }
+    .wrap { max-width:600px; margin:0 auto; }
+    .card { background:#fff; border-radius:16px; border:1px solid #e5e7eb; padding:40px 48px 48px; }
+    .cat { width:170px; height:170px; border-radius:16px; object-fit:cover; display:block; margin-bottom:28px; }
+    .title { font-family:'Crimson Pro',Georgia,serif; font-size:42px; font-weight:400; color:#111827; margin:0 0 20px; line-height:1.15; }
+    .body { font-size:18px; line-height:1.6; color:#1f2937; margin:0 0 36px; }
+    .tips-label { font-size:18px; font-weight:600; color:#111827; margin:0 0 12px; }
+    .tips-list { font-size:18px; line-height:1.8; color:#1f2937; margin:0 0 36px; padding:0; list-style:none; }
+    .tips-list li::before { content:"• "; }
+    .btn { display:inline-block; background:#111827; color:#fff !important; padding:12px 24px; border-radius:8px; font-weight:600; font-size:15px; text-decoration:none; }
+    .callout { font-size:13px; font-style:italic; color:#2563eb; margin-top:28px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <img class="cat" src="${appUrl}/cat-welcome.gif" alt="A tuxedo cat watching butterflies" />
+      <h1 class="title">Welcome, ${first} 👋</h1>
+      <p class="body">This is a Peekboard. Drop in GIFs, images, or videos. Frame and group your content. Leave pinned comments. Share it with anyone.</p>
+      <p class="tips-label">Quick Tips</p>
+      <ul class="tips-list">
+        <li>Drag a file (GIF / image / video) anywhere onto the canvas.</li>
+        <li>Press F to draw a frame and group your content inside it.</li>
+        <li>Click the speech-bubble in the toolbar to drop a pinned comment.</li>
+        <li>Press ? for the full keyboard shortcuts list.</li>
+      </ul>
+      <a class="btn" href="${appUrl}/dashboard">Open your dashboard →</a>
+    </div>
+    <p class="callout" style="margin:16px 0 0 4px;">Delete this board any time — it's yours.</p>
+  </div>
+</body></html>`,
   };
 }
 

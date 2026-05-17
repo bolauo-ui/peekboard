@@ -24,7 +24,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     version: '5.3.0',
     originX: 'left', originY: 'top',
     left: 80, top: 70,
-    width: 820, height: 640,
+    width: 820, height: 720,
     fill: '#ffffff',
     stroke: '#e5e7eb', strokeWidth: 1,
     rx: 16, ry: 16,
@@ -55,7 +55,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     left: 140, top: 390,
     width: 640,
     fontFamily: SANS,
-    fontSize: 16, lineHeight: 1.6,
+    fontSize: 20, lineHeight: 1.6,
     fill: '#1f2937',
     text: 'This is a Peekboard. Drop in GIFs, images, or videos. Frame and group your content. Leave pinned comments. Share it with anyone.',
     selectable: true, evented: true,
@@ -69,7 +69,7 @@ export function makeWelcomeCanvas(displayName: string): string {
     version: '5.3.0',
     left: 140, top: 510,
     fontFamily: SANS,
-    fontSize: 14, fontWeight: 600,
+    fontSize: 20, fontWeight: 600,
     fill: '#111827',
     text: 'Quick Tips',
     selectable: true, evented: true,
@@ -82,10 +82,10 @@ export function makeWelcomeCanvas(displayName: string): string {
   const tips = {
     type: 'textbox',
     version: '5.3.0',
-    left: 140, top: 538,
+    left: 140, top: 560,
     width: 640,
     fontFamily: SANS,
-    fontSize: 14, lineHeight: 1.8,
+    fontSize: 20, lineHeight: 1.8,
     fill: '#1f2937',
     text:
       '• Drag a file (GIF / image / video) anywhere onto the canvas.\n' +
@@ -101,7 +101,7 @@ export function makeWelcomeCanvas(displayName: string): string {
   const callout = {
     type: 'i-text',
     version: '5.3.0',
-    left: 80, top: 730,
+    left: 80, top: 810,
     fontFamily: SANS,
     fontSize: 14,
     fill: '#2563eb',
