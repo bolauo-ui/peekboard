@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers, Layout } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Tool } from '@/types';
@@ -9,7 +9,7 @@ interface Props {
   onToolChange: (t: Tool) => void;
   onAddText: () => void;
   onMediaAdded: (url: string, mimeType: string, file?: File) => void;
-  onExport: () => void;
+  onExport: (format: 'png' | 'jpeg' | 'svg' | 'gif') => void;
   role: string;
   boardName: string;
   onBack: () => void;
@@ -38,6 +38,14 @@ const ROLE_TEXT: Record<string, string> = {
   owner: '#7DD9ED', editor: '#34d399', commenter: '#fbbf24', viewer: '#888',
 };
 
+type ExportFormat = 'png' | 'jpeg' | 'svg' | 'gif';
+const EXPORT_FORMATS: { id: ExportFormat; label: string }[] = [
+  { id: 'png',  label: 'PNG'  },
+  { id: 'jpeg', label: 'JPEG' },
+  { id: 'svg',  label: 'SVG'  },
+  { id: 'gif',  label: 'GIF'  },
+];
+
 export default function Toolbar({
   activeTool, onToolChange, onAddText, onMediaAdded, onExport, role, boardName, onBack,
   saveStatus, showLayers, onToggleLayers, onShare,
@@ -45,6 +53,21 @@ export default function Toolbar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const uploadingRef = useRef(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportBtnRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (exportBtnRef.current && !exportBtnRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showExportMenu]);
 
   const canEdit    = role === 'owner' || role === 'editor';
   const canComment = canEdit || role === 'commenter';
@@ -195,18 +218,47 @@ export default function Toolbar({
 
       <div className="w-px h-5 mx-1 flex-shrink-0 hidden sm:block" style={{ background: 'var(--border)' }} />
 
-      {/* Export — icon only on mobile */}
-      <button
-        title="Export frame as PNG"
-        onClick={onExport}
-        className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
-        style={{ color: 'var(--text-secondary)' }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-      >
-        <Download size={13} />
-        <span className="hidden sm:inline">Export</span>
-      </button>
+      {/* Export with format dropdown */}
+      <div ref={exportBtnRef} className="relative flex-shrink-0">
+        <button
+          title={`Export as ${exportFormat.toUpperCase()}`}
+          onClick={() => setShowExportMenu(v => !v)}
+          className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = showExportMenu ? 'var(--bg-hover)' : 'transparent'; e.currentTarget.style.color = showExportMenu ? 'var(--text-primary)' : 'var(--text-secondary)'; }}
+        >
+          <Download size={13} />
+          <span className="hidden sm:inline">Export</span>
+        </button>
+
+        {showExportMenu && (
+          <div
+            className="absolute right-0 top-full mt-1 py-1 rounded-lg z-50 min-w-[120px]"
+            style={{ background: '#1a1a1a', border: '1px solid var(--border)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+          >
+            {EXPORT_FORMATS.map(fmt => (
+              <button
+                key={fmt.id}
+                onClick={() => {
+                  setExportFormat(fmt.id);
+                  setShowExportMenu(false);
+                  onExport(fmt.id);
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors"
+                style={{ color: 'var(--text-primary)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <span className="w-3 text-center" style={{ color: 'var(--accent)' }}>
+                  {fmt.id === exportFormat ? '✓' : ''}
+                </span>
+                {fmt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Share — icon only on mobile */}
       {onShare && role === 'owner' && (

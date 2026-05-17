@@ -444,12 +444,13 @@ export default function Board() {
     editorRef.current?.setBackground(color);
   }, []);
 
-  const handleExport = () => {
-    const dataUrl = editorRef.current?.exportFrame();
+  const handleExport = (format: 'png' | 'jpeg' | 'svg' | 'gif' = 'png') => {
+    const dataUrl = editorRef.current?.exportFrame(format);
     if (!dataUrl) return;
+    const ext = format === 'jpeg' ? 'jpg' : format;
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = `${board?.name ?? 'peekboard'}-frame.png`;
+    a.download = `${board?.name ?? 'peekboard'}.${ext}`;
     a.click();
   };
 

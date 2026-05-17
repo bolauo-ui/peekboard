@@ -8,7 +8,7 @@ import { applyAutoLayout, getAutoLayout, relayoutForChild } from '@/components/c
 export interface CanvasEditorHandle {
   addMedia:      (url: string, mimeType: string, file?: File) => void;
   addText:       () => void;
-  exportFrame:   () => string;
+  exportFrame:   (format?: 'png' | 'jpeg' | 'svg' | 'gif') => string;
   getCanvas:     () => fabric.Canvas | null;
   setBackground: (color: string) => void;
   getBackground: () => string;
@@ -388,7 +388,62 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
       },
       addText:     () => { if (fabricRef.current) addTextAtCenter(fabricRef.current); },
-      exportFrame: () => fabricRef.current?.toDataURL({ format: 'png', multiplier: 1 }) ?? '',
+      exportFrame: (format: 'png' | 'jpeg' | 'svg' | 'gif' = 'png') => {
+        const canvas = fabricRef.current;
+        if (!canvas) return '';
+
+        // SVG: return serialised markup as a data-URI
+        if (format === 'svg') {
+          return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(canvas.toSVG());
+        }
+
+        // Find the frame to crop to: active selection first, then first frame, then all-content bbox
+        const active = canvas.getActiveObject() as any;
+        const frameObj: fabric.Object | undefined =
+          (active?.data?.objectType === 'frame' ? active : undefined) ??
+          (canvas.getObjects().find((o: any) => o.data?.objectType === 'frame') as fabric.Object | undefined);
+
+        const zoom = canvas.getZoom();
+        const vpt  = canvas.viewportTransform!;
+
+        let cropLeft: number, cropTop: number, cropWidth: number, cropHeight: number;
+
+        if (frameObj) {
+          // Transform frame's fabric coords → canvas-element CSS-pixel space
+          const fw = (frameObj as any).getScaledWidth  ? (frameObj as any).getScaledWidth()  : (frameObj as any).width  as number;
+          const fh = (frameObj as any).getScaledHeight ? (frameObj as any).getScaledHeight() : (frameObj as any).height as number;
+          cropLeft   = (frameObj as any).left * zoom + vpt[4];
+          cropTop    = (frameObj as any).top  * zoom + vpt[5];
+          cropWidth  = fw * zoom;
+          cropHeight = fh * zoom;
+        } else {
+          // Fallback: tight bounding box of all objects
+          const objs = canvas.getObjects();
+          if (!objs.length) return canvas.toDataURL({ format: format === 'gif' ? 'png' : format });
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          objs.forEach(o => {
+            const b = o.getBoundingRect(true);
+            minX = Math.min(minX, b.left);         minY = Math.min(minY, b.top);
+            maxX = Math.max(maxX, b.left + b.width); maxY = Math.max(maxY, b.top + b.height);
+          });
+          cropLeft   = minX * zoom + vpt[4];
+          cropTop    = minY * zoom + vpt[5];
+          cropWidth  = (maxX - minX) * zoom;
+          cropHeight = (maxY - minY) * zoom;
+        }
+
+        // GIF: browsers don't natively encode animated GIF — export as PNG, save with .gif ext
+        const fmt = (format === 'gif' ? 'png' : format) as 'png' | 'jpeg';
+        return canvas.toDataURL({
+          format:     fmt,
+          quality:    fmt === 'jpeg' ? 0.95 : undefined,
+          multiplier: 2 / zoom,   // 2× retina-quality output
+          left:   cropLeft,
+          top:    cropTop,
+          width:  cropWidth,
+          height: cropHeight,
+        });
+      },
       getCanvas:   () => fabricRef.current,
       setBackground: (color) => {
         const c = fabricRef.current; if (!c) return;
