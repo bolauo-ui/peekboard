@@ -75,6 +75,7 @@ export interface MediaItem {
   scaleY: number;
   angle: number;
   opacity: number;
+  clipRadius?: number; // optional rounded corner radius (px, applied before scale)
 }
 
 export interface CanvasData {

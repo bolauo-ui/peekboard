@@ -1217,6 +1217,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           data: { id, mediaType: 'gif', url },
         } as any);
 
+        // Apply rounded corners if requested
+        if (saved?.clipRadius) {
+          fabricImg.clipPath = new fabric.Rect({
+            width:   w,
+            height:  h,
+            rx:      saved.clipRadius,
+            ry:      saved.clipRadius,
+            originX: 'center',
+            originY: 'center',
+          } as any);
+        }
+
         canvas.add(fabricImg);
         // Only push new (not restored) GIFs to the back so they sit behind
         // any text / shapes already on the canvas.  Restored GIFs keep their
