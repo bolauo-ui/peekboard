@@ -438,12 +438,19 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
         const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
         const zoom = canvas.getZoom();
-        return canvas.toDataURL({
+
+        // Discard selection handles/borders before screenshotting, restore after
+        const active = canvas.getActiveObject();
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        const result = canvas.toDataURL({
           format,
           quality:    format === 'jpeg' ? 0.95 : undefined,
           multiplier: 2 / zoom,
           left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight,
         });
+        if (active) { canvas.setActiveObject(active); canvas.renderAll(); }
+        return result;
       },
 
       exportGif: () => {
@@ -453,6 +460,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         return new Promise<string>(async (resolve) => {
           // Dynamic import so gif-encoder-2 only loads when needed
           const GIFEncoder = (await import('gif-encoder-2')).default;
+
+          // Clear selection so borders don't appear in frames
+          const prevActive = canvas.getActiveObject();
+          canvas.discardActiveObject();
+          canvas.renderAll();
 
           const zoom   = canvas.getZoom();
           const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
@@ -489,6 +501,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
               const buf  = encoder.out.getData() as Uint8Array;
               const blob = new Blob([buf.buffer as ArrayBuffer], { type: 'image/gif' });
               const url  = URL.createObjectURL(blob);
+              // Restore previous selection
+              if (prevActive) { canvas.setActiveObject(prevActive); canvas.renderAll(); }
               resolve(url);
               return;
             }
