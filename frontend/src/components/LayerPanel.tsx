@@ -3,7 +3,7 @@ import { fabric } from 'fabric';
 import {
   Frame, Type, Image as ImageIcon, Film, Video, Layers,
   Square, Eye, EyeOff, Lock, Unlock, Group, Ungroup,
-  ChevronRight, ChevronDown,
+  ChevronRight, ChevronDown, GripVertical,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -148,7 +148,8 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
   const [editingId,    setEditingId]    = useState<string | null>(null);
   const [editingName,  setEditingName]  = useState('');
   const [dragging,     setDragging]     = useState<string | null>(null);
-  const [dragOver,     setDragOver]     = useState<string | null>(null);
+  // { id, pos: 'before'|'after' } — where the drop line is shown
+  const [dropTarget,   setDropTarget]   = useState<{ id: string; pos: 'before' | 'after' } | null>(null);
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsed(prev => {
@@ -227,10 +228,18 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
     }
   };
 
-  // ── Drag-to-reorder (same-level) ────────────────────────────────────────────
+  // ── Drag-to-reorder ──────────────────────────────────────────────────────────
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const pos: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    setDropTarget({ id, pos });
+  };
+
   const handleDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    setDragOver(null);
+    const pos = dropTarget?.pos ?? 'after';
+    setDropTarget(null);
     setDragging(null);
     if (!canEdit || !dragging || dragging === targetId) return;
 
@@ -238,15 +247,25 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
     const dstRow = flatRows.find(r => r.layer.id === targetId);
     if (!srcRow || !dstRow) return;
 
+    // Layer panel is reversed (top-of-stack first). In Fabric _objects:
+    //   'before' in panel = higher z-index = higher array index
+    //   'after'  in panel = lower z-index  = lower array index
     const objs   = (canvas as any)._objects as fabric.Object[];
     const srcIdx = objs.indexOf(srcRow.layer.obj);
-    const dstIdx = objs.indexOf(dstRow.layer.obj);
+    let   dstIdx = objs.indexOf(dstRow.layer.obj);
     if (srcIdx === -1 || dstIdx === -1) return;
 
+    // Remove source
     objs.splice(srcIdx, 1);
-    const newDst = objs.indexOf(dstRow.layer.obj);
-    objs.splice(srcIdx > dstIdx ? newDst + 1 : newDst, 0, srcRow.layer.obj);
+    // Recalculate dst after removal
+    dstIdx = objs.indexOf(dstRow.layer.obj);
+
+    // 'before' in panel → insert ABOVE dst in _objects (dstIdx + 1)
+    // 'after'  in panel → insert BELOW dst in _objects (dstIdx)
+    const insertAt = pos === 'before' ? dstIdx + 1 : dstIdx;
+    objs.splice(insertAt, 0, srcRow.layer.obj);
     canvas.requestRenderAll();
+    canvas.fire('object:modified', { target: srcRow.layer.obj });
   };
 
   const isGroup = selectedObject instanceof fabric.Group && !(selectedObject instanceof fabric.ActiveSelection);
@@ -288,27 +307,40 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
             const isCollapsed = collapsed.has(layer.id);
             const indent = depth * 12;
 
+            const isDropBefore = dropTarget?.id === layer.id && dropTarget.pos === 'before';
+            const isDropAfter  = dropTarget?.id === layer.id && dropTarget.pos === 'after';
+
             return (
               <div
                 key={layer.id}
                 draggable={canEdit}
-                onDragStart={() => setDragging(layer.id)}
-                onDragOver={e => { e.preventDefault(); setDragOver(layer.id); }}
+                onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging(layer.id); }}
+                onDragOver={e => handleDragOver(e, layer.id)}
                 onDrop={e => handleDrop(e, layer.id)}
-                onDragEnd={() => { setDragging(null); setDragOver(null); }}
+                onDragEnd={() => { setDragging(null); setDropTarget(null); }}
                 onClick={() => selectObj(layer.obj)}
-                className="flex items-center gap-1 py-[3px] rounded cursor-pointer group select-none"
+                className="relative flex items-center gap-1 py-[3px] rounded cursor-pointer group select-none"
                 style={{
                   paddingLeft: 4 + indent,
                   paddingRight: 4,
-                  background: layer.isSelected
-                    ? 'rgba(27,175,216,0.2)'
-                    : dragOver === layer.id
-                    ? 'rgba(27,175,216,0.1)'
-                    : 'transparent',
-                  opacity: layer.visible ? 1 : 0.4,
+                  background: layer.isSelected ? 'rgba(27,175,216,0.2)' : 'transparent',
+                  opacity: dragging === layer.id ? 0.4 : layer.visible ? 1 : 0.4,
                 }}
               >
+                {/* Drop line — before */}
+                {isDropBefore && (
+                  <div className="absolute left-0 right-0 top-0 h-0.5 rounded pointer-events-none z-10"
+                    style={{ background: 'var(--accent)' }} />
+                )}
+
+                {/* Grip handle */}
+                {canEdit && (
+                  <span className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                    style={{ color: 'var(--text-muted)', lineHeight: 0 }}>
+                    <GripVertical size={10} />
+                  </span>
+                )}
+
                 {/* Collapse chevron — only for frames/groups with children */}
                 <span
                   className="flex items-center justify-center flex-shrink-0"
@@ -374,6 +406,12 @@ export default function LayerPanel({ canvas, selectedObject, onSelect, layerVers
                     </IconBtn>
                   )}
                 </div>
+
+                {/* Drop line — after */}
+                {isDropAfter && (
+                  <div className="absolute left-0 right-0 bottom-0 h-0.5 rounded pointer-events-none z-10"
+                    style={{ background: 'var(--accent)' }} />
+                )}
               </div>
             );
           })
