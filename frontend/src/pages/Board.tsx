@@ -444,13 +444,28 @@ export default function Board() {
     editorRef.current?.setBackground(color);
   }, []);
 
-  const handleExport = (format: 'png' | 'jpeg' | 'svg' | 'gif' = 'png') => {
+  const handleExport = async (format: 'png' | 'jpeg' | 'svg' | 'gif' = 'png') => {
+    const baseName = board?.name ?? 'peekboard';
+    const ext = format === 'jpeg' ? 'jpg' : format;
+
+    if (format === 'gif') {
+      // Animated GIF — capture live canvas frames (async, ~3 s)
+      const url = await editorRef.current?.exportGif();
+      if (!url) return;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${baseName}.gif`;
+      a.click();
+      // Revoke the object URL after the download is triggered
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      return;
+    }
+
     const dataUrl = editorRef.current?.exportFrame(format);
     if (!dataUrl) return;
-    const ext = format === 'jpeg' ? 'jpg' : format;
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = `${board?.name ?? 'peekboard'}.${ext}`;
+    a.download = `${baseName}.${ext}`;
     a.click();
   };
 

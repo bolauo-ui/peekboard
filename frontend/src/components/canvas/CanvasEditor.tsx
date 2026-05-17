@@ -8,7 +8,8 @@ import { applyAutoLayout, getAutoLayout, relayoutForChild } from '@/components/c
 export interface CanvasEditorHandle {
   addMedia:      (url: string, mimeType: string, file?: File) => void;
   addText:       () => void;
-  exportFrame:   (format?: 'png' | 'jpeg' | 'svg' | 'gif') => string;
+  exportFrame:   (format?: 'png' | 'jpeg' | 'svg') => string;
+  exportGif:     () => Promise<string>;   // animated GIF — async (captures live frames)
   getCanvas:     () => fabric.Canvas | null;
   setBackground: (color: string) => void;
   getBackground: () => string;
@@ -373,6 +374,44 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       [pushHistory]
     );
 
+    // ── Helper: compute crop rect for the current frame (canvas CSS pixels) ──
+    const getFrameCrop = (canvas: fabric.Canvas) => {
+      const zoom = canvas.getZoom();
+      const vpt  = canvas.viewportTransform!;
+      const active = canvas.getActiveObject() as any;
+      const frameObj: fabric.Object | undefined =
+        (active?.data?.objectType === 'frame' ? active : undefined) ??
+        (canvas.getObjects().find((o: any) => o.data?.objectType === 'frame') as fabric.Object | undefined);
+
+      if (frameObj) {
+        const fw = (frameObj as any).getScaledWidth?.() ?? (frameObj as any).width  as number;
+        const fh = (frameObj as any).getScaledHeight?.() ?? (frameObj as any).height as number;
+        return {
+          cropLeft:   (frameObj as any).left * zoom + vpt[4],
+          cropTop:    (frameObj as any).top  * zoom + vpt[5],
+          cropWidth:  fw * zoom,
+          cropHeight: fh * zoom,
+        };
+      }
+      // Fallback: tight bounding box of all objects
+      const objs = canvas.getObjects();
+      let minX = 0, minY = 0, maxX = canvas.getWidth(), maxY = canvas.getHeight();
+      if (objs.length) {
+        minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+        objs.forEach(o => {
+          const b = o.getBoundingRect(true);
+          minX = Math.min(minX, b.left);           minY = Math.min(minY, b.top);
+          maxX = Math.max(maxX, b.left + b.width); maxY = Math.max(maxY, b.top + b.height);
+        });
+      }
+      return {
+        cropLeft:   minX * zoom + vpt[4],
+        cropTop:    minY * zoom + vpt[5],
+        cropWidth:  (maxX - minX) * zoom,
+        cropHeight: (maxY - minY) * zoom,
+      };
+    };
+
     // ── Imperative handle ────────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
       addMedia: (url, mimeType, file) => {
@@ -388,7 +427,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
       },
       addText:     () => { if (fabricRef.current) addTextAtCenter(fabricRef.current); },
-      exportFrame: (format: 'png' | 'jpeg' | 'svg' | 'gif' = 'png') => {
+      exportFrame: (format: 'png' | 'jpeg' | 'svg' = 'png') => {
         const canvas = fabricRef.current;
         if (!canvas) return '';
 
@@ -397,51 +436,77 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(canvas.toSVG());
         }
 
-        // Find the frame to crop to: active selection first, then first frame, then all-content bbox
-        const active = canvas.getActiveObject() as any;
-        const frameObj: fabric.Object | undefined =
-          (active?.data?.objectType === 'frame' ? active : undefined) ??
-          (canvas.getObjects().find((o: any) => o.data?.objectType === 'frame') as fabric.Object | undefined);
-
+        const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
         const zoom = canvas.getZoom();
-        const vpt  = canvas.viewportTransform!;
-
-        let cropLeft: number, cropTop: number, cropWidth: number, cropHeight: number;
-
-        if (frameObj) {
-          // Transform frame's fabric coords → canvas-element CSS-pixel space
-          const fw = (frameObj as any).getScaledWidth  ? (frameObj as any).getScaledWidth()  : (frameObj as any).width  as number;
-          const fh = (frameObj as any).getScaledHeight ? (frameObj as any).getScaledHeight() : (frameObj as any).height as number;
-          cropLeft   = (frameObj as any).left * zoom + vpt[4];
-          cropTop    = (frameObj as any).top  * zoom + vpt[5];
-          cropWidth  = fw * zoom;
-          cropHeight = fh * zoom;
-        } else {
-          // Fallback: tight bounding box of all objects
-          const objs = canvas.getObjects();
-          if (!objs.length) return canvas.toDataURL({ format: format === 'gif' ? 'png' : format });
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-          objs.forEach(o => {
-            const b = o.getBoundingRect(true);
-            minX = Math.min(minX, b.left);         minY = Math.min(minY, b.top);
-            maxX = Math.max(maxX, b.left + b.width); maxY = Math.max(maxY, b.top + b.height);
-          });
-          cropLeft   = minX * zoom + vpt[4];
-          cropTop    = minY * zoom + vpt[5];
-          cropWidth  = (maxX - minX) * zoom;
-          cropHeight = (maxY - minY) * zoom;
-        }
-
-        // GIF: browsers don't natively encode animated GIF — export as PNG, save with .gif ext
-        const fmt = (format === 'gif' ? 'png' : format) as 'png' | 'jpeg';
         return canvas.toDataURL({
-          format:     fmt,
-          quality:    fmt === 'jpeg' ? 0.95 : undefined,
-          multiplier: 2 / zoom,   // 2× retina-quality output
-          left:   cropLeft,
-          top:    cropTop,
-          width:  cropWidth,
-          height: cropHeight,
+          format,
+          quality:    format === 'jpeg' ? 0.95 : undefined,
+          multiplier: 2 / zoom,
+          left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight,
+        });
+      },
+
+      exportGif: () => {
+        const canvas = fabricRef.current;
+        if (!canvas) return Promise.resolve('');
+
+        return new Promise<string>(async (resolve) => {
+          // Dynamic import so gif-encoder-2 only loads when needed
+          const GIFEncoder = (await import('gif-encoder-2')).default;
+
+          const zoom   = canvas.getZoom();
+          const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
+
+          // Output dimensions at 1× (gif-encoder-2 works at CSS pixel size)
+          const outW = Math.round(cropWidth);
+          const outH = Math.round(cropHeight);
+
+          // Capture ~3 s of animation at 10 fps = 30 frames
+          const FPS        = 10;
+          const DURATION_S = 3;
+          const FRAME_MS   = 1000 / FPS;
+          const TOTAL      = FPS * DURATION_S;
+
+          const encoder = new GIFEncoder(outW, outH, 'neuquant', true);
+          encoder.setDelay(FRAME_MS);
+          encoder.setRepeat(0);     // loop forever
+          encoder.setQuality(10);   // 1=best, 20=fast
+          encoder.start();
+
+          // Scratch canvas we composite each frame onto at output size
+          const scratch    = document.createElement('canvas');
+          scratch.width    = outW;
+          scratch.height   = outH;
+          const scratchCtx = scratch.getContext('2d')!;
+
+          // Lower canvas element — this is what fabric draws onto
+          const lowerEl = canvas.getElement();
+
+          let captured = 0;
+          const captureFrame = () => {
+            if (captured >= TOTAL) {
+              encoder.finish();
+              const buf  = encoder.out.getData() as Uint8Array;
+              const blob = new Blob([buf.buffer as ArrayBuffer], { type: 'image/gif' });
+              const url  = URL.createObjectURL(blob);
+              resolve(url);
+              return;
+            }
+
+            // Force a fresh render then read the canvas pixels
+            canvas.renderAll();
+            scratchCtx.clearRect(0, 0, outW, outH);
+            scratchCtx.drawImage(
+              lowerEl,
+              cropLeft, cropTop, cropWidth, cropHeight,  // src crop
+              0, 0, outW, outH,                           // dst full
+            );
+            encoder.addFrame(scratchCtx);
+            captured++;
+            setTimeout(captureFrame, FRAME_MS);
+          };
+
+          captureFrame();
         });
       },
       getCanvas:   () => fabricRef.current,
