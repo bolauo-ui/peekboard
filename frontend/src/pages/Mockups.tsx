@@ -1303,6 +1303,7 @@ const ELSEWHEN_AVATAR = (() => {
 
 function LinkedInCompanyPage({ profile, onAvatarChange, creative, onCreativeChange }: MockupProps) {
   const font = '"system-ui",-apple-system,"Segoe UI",sans-serif';
+  const [postCreative, setPostCreative] = React.useState<string | null>(null);
   return (
     <div style={{ width: 1080, fontFamily: font, fontSize: 14, userSelect: 'none', background: '#F3F2EF' }}>
 
@@ -1521,7 +1522,7 @@ function LinkedInCompanyPage({ profile, onAvatarChange, creative, onCreativeChan
               </E>
               {/* No creative zone here — just the post image slot */}
               <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e8e8e8', marginBottom: 10 }}>
-                <CreativeZone creative={null} onCreativeChange={() => {}} aspectRatio="1200/627" label="Post image" />
+                <CreativeZone creative={postCreative} onCreativeChange={setPostCreative} aspectRatio="1200/627" label="Post image" />
               </div>
               {/* Reactions */}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 8px', borderBottom: '1px solid #e8e8e8' }}>
