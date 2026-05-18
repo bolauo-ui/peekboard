@@ -344,35 +344,42 @@ function LinkedInDesktopPost({ profile, onAvatarChange, creative, onCreativeChan
               {`UK public sector productivity has been stagnant for three decades. Costs have risen. Demand has intensified.\n\nOur new whitepaper — The Agentic Blueprint for Public Sector Productivity — explores how AI can close the gap. Drop a comment if you'd like early access.`}
             </E>
             {/* Format toggle + Creative zone */}
-            <div style={{ position: 'relative' }}>
-              {/* Aspect ratio toggle pills */}
-              <div style={{ display: 'flex', gap: 6, padding: '0 16px 10px', justifyContent: 'flex-end' }}>
-                {(['1:1', '4:5'] as const).map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setRatio(r)}
-                    style={{
-                      background: ratio === r ? '#0A66C2' : '#f0f0f0',
-                      color: ratio === r ? '#fff' : '#555',
-                      border: 'none', borderRadius: 6, padding: '4px 10px',
-                      fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                      transition: 'all 0.15s',
-                      letterSpacing: '0.02em',
-                    }}
-                  >
-                    {r}
-                    <span style={{ marginLeft: 4, fontWeight: 400, opacity: 0.75 }}>
-                      {r === '1:1' ? '1080×1080' : '1080×1350'}
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <div
+              style={{ position: 'relative' }}
+              onMouseEnter={e => { const el = e.currentTarget.querySelector<HTMLElement>('[data-ratio-toggle]'); if (el) el.style.opacity = '1'; }}
+              onMouseLeave={e => { const el = e.currentTarget.querySelector<HTMLElement>('[data-ratio-toggle]'); if (el) el.style.opacity = '0'; }}
+            >
               <CreativeZone
                 creative={creative}
                 onCreativeChange={onCreativeChange}
                 aspectRatio={ratio === '1:1' ? '1/1' : '4/5'}
                 label={ratio === '1:1' ? '1080 × 1080' : '1080 × 1350'}
               />
+              {/* Aspect ratio toggle — appears on hover, floats top-right of creative */}
+              <div
+                data-ratio-toggle=""
+                style={{
+                  position: 'absolute', top: 10, right: 10,
+                  display: 'flex', gap: 4,
+                  opacity: 0, transition: 'opacity 0.15s', pointerEvents: 'auto',
+                }}
+              >
+                {(['1:1', '4:5'] as const).map(r => (
+                  <button
+                    key={r}
+                    onClick={e => { e.stopPropagation(); setRatio(r); }}
+                    style={{
+                      background: ratio === r ? 'rgba(10,102,194,0.92)' : 'rgba(0,0,0,0.45)',
+                      color: '#fff', border: 'none', borderRadius: 5,
+                      padding: '3px 8px', fontSize: 11, fontWeight: 600,
+                      cursor: 'pointer', backdropFilter: 'blur(4px)',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
             </div>
             {/* Reactions */}
             <div style={{ padding: '8px 16px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
