@@ -225,7 +225,7 @@ function LinkedInLogo({ size }: { size: number }) {
 // ── LINKEDIN DESKTOP ──────────────────────────────────────────────────────────
 
 function LinkedInDesktopPost({ profile, onAvatarChange, creative, onCreativeChange }: MockupProps) {
-  const [ratio, setRatio] = React.useState<'1:1' | '4:5'>('1:1');
+  const [ratio, setRatio] = useState<'1:1' | '4:5'>('1:1');
   return (
     <div style={{ width: 1080, fontFamily: '"system-ui",-apple-system,"Segoe UI",sans-serif', fontSize: 14, userSelect: 'none' }}>
       {/* Navbar — 52px, white, bottom border */}
@@ -1303,7 +1303,7 @@ const ELSEWHEN_AVATAR = (() => {
 
 function LinkedInCompanyPage({ profile, onAvatarChange, creative, onCreativeChange }: MockupProps) {
   const font = '"system-ui",-apple-system,"Segoe UI",sans-serif';
-  const [postCreative, setPostCreative] = React.useState<string | null>(null);
+  const [postCreative, setPostCreative] = useState<string | null>(null);
   return (
     <div style={{ width: 1080, fontFamily: font, fontSize: 14, userSelect: 'none', background: '#F3F2EF' }}>
 
