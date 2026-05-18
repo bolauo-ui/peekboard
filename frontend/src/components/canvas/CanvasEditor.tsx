@@ -193,16 +193,40 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         if (!payload) return;
         onCanvasChange(payload);
 
-        // Thumbnail snapshot — small JPEG of the canvas, throttled. Wrapped
-        // in try/catch because toDataURL throws if any object on the canvas
-        // was loaded from a tainted cross-origin source.
+        // Thumbnail snapshot — JPEG cropped to content bounds so the preview
+        // image shows the actual work, not a tiny speck on a large dark canvas.
         const now = Date.now();
         if (onThumbnail && now - lastThumbAt.current > 30_000) {
           const c = fabricRef.current;
           if (c) {
             try {
-              const dataUrl = c.toDataURL({ format: 'jpeg', quality: 0.6, multiplier: 0.25 });
-              if (dataUrl && dataUrl.length < 2_000_000) {
+              const objects = c.getObjects();
+              let cropOpts: Record<string, number> = {};
+              if (objects.length > 0) {
+                // Compute bounding box of all objects
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                objects.forEach(obj => {
+                  const b = obj.getBoundingRect(true);
+                  if (b.left  < minX) minX = b.left;
+                  if (b.top   < minY) minY = b.top;
+                  if (b.left + b.width  > maxX) maxX = b.left + b.width;
+                  if (b.top  + b.height > maxY) maxY = b.top  + b.height;
+                });
+                const pad = 60;
+                cropOpts = {
+                  left:   Math.max(0, minX - pad),
+                  top:    Math.max(0, minY - pad),
+                  width:  Math.min(c.getWidth(),  maxX - minX + pad * 2),
+                  height: Math.min(c.getHeight(), maxY - minY + pad * 2),
+                };
+              }
+              const dataUrl = c.toDataURL({
+                format:     'jpeg',
+                quality:    0.82,
+                multiplier: objects.length > 0 ? Math.min(2, 1200 / (cropOpts.width || c.getWidth())) : 0.3,
+                ...cropOpts,
+              });
+              if (dataUrl && dataUrl.length < 3_000_000) {
                 lastThumbAt.current = now;
                 onThumbnail(dataUrl);
               }
