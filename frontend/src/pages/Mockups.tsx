@@ -2489,42 +2489,45 @@ export default function Mockups() {
             </div>
           ))}
 
-          {/* Saved mockups */}
-          {savedMockups.length > 0 && (
-            <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', letterSpacing: '0.08em',
-                textTransform: 'uppercase', padding: '2px 10px 6px' }}>Saved</div>
-              {savedMockups.map(snap => (
-                <button key={snap.id}
-                  onClick={() => handleLoadSaved(snap)}
-                  style={{
-                    width: '100%', textAlign: 'left', border: 'none', borderRadius: 8,
-                    padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                    background: currentSaveId === snap.id ? 'rgba(27,175,216,0.1)' : 'none',
-                  }}
-                  onMouseEnter={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = '#f5f5f5'; }}
-                  onMouseLeave={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = ''; }}>
-                  <span style={{ fontSize: 13, flexShrink: 0 }}>📄</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: currentSaveId === snap.id ? '#1BAFD8' : '#0a0a0a',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.name}</div>
-                    <div style={{ fontSize: 10, color: '#aaa', marginTop: 1 }}>
-                      {new Date(snap.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </div>
+          {/* Saved mockups — always visible */}
+          <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', letterSpacing: '0.08em',
+              textTransform: 'uppercase', padding: '2px 10px 6px' }}>Saved</div>
+            {savedMockups.length === 0 ? (
+              <div style={{ padding: '6px 10px 4px', fontSize: 11, color: '#bbb', lineHeight: 1.5 }}>
+                Nothing saved yet.<br />
+                Hit <strong style={{ color: '#aaa' }}>↓ Save</strong> in the toolbar to store your work here.
+              </div>
+            ) : savedMockups.map(snap => (
+              <button key={snap.id}
+                onClick={() => handleLoadSaved(snap)}
+                style={{
+                  width: '100%', textAlign: 'left', border: 'none', borderRadius: 8,
+                  padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                  background: currentSaveId === snap.id ? 'rgba(27,175,216,0.1)' : 'none',
+                }}
+                onMouseEnter={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = '#f5f5f5'; }}
+                onMouseLeave={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = ''; }}>
+                <span style={{ fontSize: 13, flexShrink: 0 }}>📄</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: currentSaveId === snap.id ? '#1BAFD8' : '#0a0a0a',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.name}</div>
+                  <div style={{ fontSize: 10, color: '#aaa', marginTop: 1 }}>
+                    {new Date(snap.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </div>
-                  <button
-                    onClick={e => handleDeleteSaved(snap.id, e)}
-                    title="Delete"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-                      color: '#ccc', fontSize: 14, lineHeight: 1, flexShrink: 0, borderRadius: 4 }}
-                    onMouseEnter={e => (e.currentTarget.style.color = '#e53e3e')}
-                    onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}>
-                    ×
-                  </button>
+                </div>
+                <button
+                  onClick={e => handleDeleteSaved(snap.id, e)}
+                  title="Delete"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                    color: '#ccc', fontSize: 14, lineHeight: 1, flexShrink: 0, borderRadius: 4 }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#e53e3e')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}>
+                  ×
                 </button>
-              ))}
-            </div>
-          )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Canvas area */}
