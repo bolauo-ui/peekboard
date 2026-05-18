@@ -1646,34 +1646,50 @@ app.use((err: Error, _req: any, res: any, _next: any) => {
 // ── SPA catch-all (production) ────────────────────────────────────────────────
 if (IS_PROD) {
   const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-  const fs = require('fs');
+  const BASE_URL   = process.env.APP_URL ?? 'https://peekboard-production.up.railway.app';
 
-  // Inject OG meta tags for public board view links so Slack/WhatsApp/iMessage
-  // unfurl correctly. Crawlers don't run JS so we must do this server-side.
+  // Helper: read index.html and inject OG tags before </head>
+  const serveWithOg = (res: any, tags: string) => {
+    const raw  = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    const html = raw.replace('</head>', `${tags}\n  </head>`);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  };
+
+  // ── Homepage / all non-board routes — Peekboard brand OG tags ──────────────
+  const homeTags = `
+    <meta property="og:type"         content="website" />
+    <meta property="og:url"          content="${BASE_URL}/" />
+    <meta property="og:title"        content="Peekboard — Preview your motion creatives in context" />
+    <meta property="og:description"  content="See your GIFs in real social feeds, leave feedback, and get sign-off before publishing." />
+    <meta property="og:image"        content="${BASE_URL}/og-image.jpg" />
+    <meta property="og:image:width"  content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content="Peekboard — Preview your motion creatives in context" />
+    <meta name="twitter:description" content="See your GIFs in real social feeds, leave feedback, and get sign-off before publishing." />
+    <meta name="twitter:image"       content="${BASE_URL}/og-image.jpg" />
+    <meta name="description"         content="See your GIFs in real social feeds, leave feedback, and get sign-off before publishing." />
+    <title>Peekboard — Preview your motion creatives in context</title>`;
+
+  // ── Public board view — board-specific OG tags ──────────────────────────────
   app.get('/view/:token', (req, res) => {
-    const db = readDb();
+    const db    = readDb();
     const board = db.boards.find((b: any) => b.public_token === req.params.token);
-    const indexHtml = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    if (!board) { serveWithOg(res, homeTags); return; }
 
-    if (!board) {
-      // No board — serve plain SPA (will show error state client-side)
-      res.send(indexHtml);
-      return;
-    }
-
-    const owner = db.users.find((u: any) => u.id === board.owner_id);
+    const owner     = db.users.find((u: any) => u.id === board.owner_id);
     const ownerName = owner?.name ?? 'Someone';
-    const title    = `${board.name} — Peekboard`;
-    const desc     = `View this board by ${ownerName} on Peekboard`;
-    const baseUrl  = process.env.APP_URL ?? 'https://peekboard-production.up.railway.app';
-    const image    = board.thumbnail_url
-      ? (board.thumbnail_url.startsWith('http') ? board.thumbnail_url : `${baseUrl}${board.thumbnail_url}`)
-      : `${baseUrl}/og-image.jpg`;
-    const url      = `${req.protocol}://${req.get('host')}/view/${req.params.token}`;
+    const title     = `${board.name} — Peekboard`;
+    const desc      = `View this board by ${ownerName} on Peekboard`;
+    const pageUrl   = `${BASE_URL}/view/${req.params.token}`;
+    const image     = board.thumbnail_url
+      ? (board.thumbnail_url.startsWith('http') ? board.thumbnail_url : `${BASE_URL}${board.thumbnail_url}`)
+      : `${BASE_URL}/og-image.jpg`;
 
-    const ogTags = `
+    const boardTags = `
     <meta property="og:type"        content="website" />
-    <meta property="og:url"         content="${url}" />
+    <meta property="og:url"         content="${pageUrl}" />
     <meta property="og:title"       content="${title.replace(/"/g, '&quot;')}" />
     <meta property="og:description" content="${desc.replace(/"/g, '&quot;')}" />
     <meta property="og:image"       content="${image}" />
@@ -1683,14 +1699,11 @@ if (IS_PROD) {
     <meta name="twitter:image"      content="${image}" />
     <title>${title.replace(/</g, '&lt;')}</title>`;
 
-    // Inject just before </head>
-    const html = indexHtml.replace('</head>', `${ogTags}\n  </head>`);
-    res.send(html);
+    serveWithOg(res, boardTags);
   });
 
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
-  });
+  // ── All other routes — inject brand OG tags ─────────────────────────────────
+  app.get('*', (_req, res) => serveWithOg(res, homeTags));
 }
 
 app.listen(PORT, () => {
