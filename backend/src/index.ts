@@ -1620,6 +1620,45 @@ app.use((err: Error, _req: any, res: any, _next: any) => {
 // ── SPA catch-all (production) ────────────────────────────────────────────────
 if (IS_PROD) {
   const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+  const fs = require('fs');
+
+  // Inject OG meta tags for public board view links so Slack/WhatsApp/iMessage
+  // unfurl correctly. Crawlers don't run JS so we must do this server-side.
+  app.get('/view/:token', (req, res) => {
+    const db = readDb();
+    const board = db.boards.find((b: any) => b.public_token === req.params.token);
+    const indexHtml = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+
+    if (!board) {
+      // No board — serve plain SPA (will show error state client-side)
+      res.send(indexHtml);
+      return;
+    }
+
+    const owner = db.users.find((u: any) => u.id === board.owner_id);
+    const ownerName = owner?.name ?? 'Someone';
+    const title    = `${board.name} — Peekboard`;
+    const desc     = `View this board by ${ownerName} on Peekboard`;
+    const image    = board.thumbnail_url ?? 'https://peekboard.app/og-default.png';
+    const url      = `${req.protocol}://${req.get('host')}/view/${req.params.token}`;
+
+    const ogTags = `
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="${url}" />
+    <meta property="og:title"       content="${title.replace(/"/g, '&quot;')}" />
+    <meta property="og:description" content="${desc.replace(/"/g, '&quot;')}" />
+    <meta property="og:image"       content="${image}" />
+    <meta name="twitter:card"       content="summary_large_image" />
+    <meta name="twitter:title"      content="${title.replace(/"/g, '&quot;')}" />
+    <meta name="twitter:description" content="${desc.replace(/"/g, '&quot;')}" />
+    <meta name="twitter:image"      content="${image}" />
+    <title>${title.replace(/</g, '&lt;')}</title>`;
+
+    // Inject just before </head>
+    const html = indexHtml.replace('</head>', `${ogTags}\n  </head>`);
+    res.send(html);
+  });
+
   app.get('*', (_req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
   });
