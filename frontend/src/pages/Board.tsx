@@ -53,6 +53,7 @@ export default function Board() {
   const [layerVersion, setLayerVersion] = useState(0);
   const [saveStatus,   setSaveStatus]   = useState<'saved'|'saving'|'unsaved'>('saved');
   const [zoom,         setZoom]         = useState(1);
+  const [exportingGif, setExportingGif] = useState(false);
 
   // ── Comments + members (lifted so overlay + sidebar share one source of truth)
   const [comments,        setComments]        = useState<Comment[]>([]);
@@ -299,14 +300,7 @@ export default function Board() {
       // ── Duplicate (Cmd+D) ────────────────────────────────────────────────
       if (meta && e.key === 'd') {
         e.preventDefault();
-        const c   = canvasRef.current;
-        const obj = c?.getActiveObject();
-        if (obj && c) {
-          obj.clone((cl: fabric.Object) => {
-            cl.set({ left: (cl.left ?? 0) + 20, top: (cl.top ?? 0) + 20 });
-            c.add(cl); c.setActiveObject(cl); c.renderAll();
-          });
-        }
+        editorRef.current?.duplicateActive();
         return;
       }
 
@@ -449,15 +443,22 @@ export default function Board() {
     const ext = format === 'jpeg' ? 'jpg' : format;
 
     if (format === 'gif') {
-      // Animated GIF — capture live canvas frames (async, ~3 s)
-      const url = await editorRef.current?.exportGif();
-      if (!url) return;
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${baseName}.gif`;
-      a.click();
-      // Revoke the object URL after the download is triggered
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      // Animated GIF — capture live canvas frames (async, ~1-2 s)
+      setExportingGif(true);
+      try {
+        const url = await editorRef.current?.exportGif();
+        if (!url) return;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${baseName}.gif`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      } catch (err) {
+        console.error('[GIF export]', err);
+        alert(`GIF export failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setExportingGif(false);
+      }
       return;
     }
 
@@ -504,6 +505,7 @@ export default function Board() {
         showLayers={showLayers}
         onToggleLayers={() => setShowLayers(v => !v)}
         onShare={() => setShowShare(true)}
+        exportingGif={exportingGif}
       />
 
 
@@ -691,6 +693,7 @@ export default function Board() {
           canEdit={board.role === 'owner' || board.role === 'editor'}
           onClose={() => setCtxMenu(null)}
           onChange={() => { /* fabric mutations already trigger object:modified; nothing extra */ }}
+          onDuplicate={() => { editorRef.current?.duplicateActive(); setCtxMenu(null); }}
         />
       )}
     </div>

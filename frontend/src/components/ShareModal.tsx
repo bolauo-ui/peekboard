@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Link, Copy, Check, Trash2, ChevronDown } from 'lucide-react';
-import { sharingApi } from '@/lib/api';
+import { X, Link, Copy, Check, Trash2, ChevronDown, Globe, Lock } from 'lucide-react';
+import { sharingApi, boardsApi } from '@/lib/api';
 import type { BoardMember, User } from '@/types';
 
 interface Props { boardId: string; currentUser: User; onClose: () => void; }
@@ -15,21 +15,43 @@ function Avatar({ name, color }: { name: string; color: string }) {
 }
 
 export default function ShareModal({ boardId, currentUser, onClose }: Props) {
-  const [members,  setMembers]  = useState<BoardMember[]>([]);
-  const [owner,    setOwner]    = useState<(User & { role: string }) | null>(null);
-  const [email,    setEmail]    = useState('');
-  const [role,     setRole]     = useState<'viewer'|'commenter'|'editor'>('viewer');
-  const [sharing,  setSharing]  = useState(false);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState('');
-  const [inviteUrl, setInviteUrl] = useState('');
-  const [copied,   setCopied]   = useState(false);
+  const [members,      setMembers]      = useState<BoardMember[]>([]);
+  const [owner,        setOwner]        = useState<(User & { role: string }) | null>(null);
+  const [email,        setEmail]        = useState('');
+  const [role,         setRole]         = useState<'viewer'|'commenter'|'editor'>('viewer');
+  const [sharing,      setSharing]      = useState(false);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState('');
+  const [inviteUrl,    setInviteUrl]    = useState('');
+  const [copied,       setCopied]       = useState(false);
+  const [publicToken,  setPublicToken]  = useState<string | null>(null);
+  const [publicCopied, setPublicCopied] = useState(false);
+  const [togglingPub,  setTogglingPub]  = useState(false);
+
+  const publicUrl = publicToken ? `${window.location.origin}/view/${publicToken}` : '';
 
   useEffect(() => {
     sharingApi.getMembers(boardId)
       .then(({ members, owner }) => { setMembers(members); setOwner(owner); })
       .finally(() => setLoading(false));
+    boardsApi.getPublicLink(boardId)
+      .then(d => setPublicToken(d.public_token))
+      .catch(() => {});
   }, [boardId]);
+
+  const togglePublic = async () => {
+    setTogglingPub(true);
+    try {
+      const d = await boardsApi.togglePublicLink(boardId, !publicToken);
+      setPublicToken(d.public_token);
+    } finally { setTogglingPub(false); }
+  };
+
+  const copyPublicLink = async () => {
+    if (!publicUrl) return;
+    await navigator.clipboard.writeText(publicUrl);
+    setPublicCopied(true); setTimeout(() => setPublicCopied(false), 2000);
+  };
 
   const handleShare = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +95,52 @@ export default function ShareModal({ boardId, currentUser, onClose }: Props) {
         </div>
 
         <div className="p-5 overflow-y-auto flex-1 space-y-5">
+
+          {/* ── Public link ── */}
+          {isOwner && (
+            <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-section)', border: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {publicToken
+                    ? <Globe size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                    : <Lock  size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {publicToken ? 'Anyone with the link can view' : 'Private — invite only'}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {publicToken ? 'No account needed to view' : 'Turn on to share without requiring sign-in'}
+                    </p>
+                  </div>
+                </div>
+                {/* Toggle */}
+                <button onClick={togglePublic} disabled={togglingPub}
+                  className="relative flex-shrink-0 transition-colors rounded-full"
+                  style={{ width: 36, height: 20, background: publicToken ? 'var(--accent)' : 'var(--border)', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  <span style={{
+                    position: 'absolute', top: 3, left: publicToken ? 19 : 3,
+                    width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                    transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                  }} />
+                </button>
+              </div>
+              {publicToken && (
+                <div className="flex gap-2">
+                  <input readOnly value={publicUrl}
+                    className="flex-1 text-xs rounded px-2 py-1.5 truncate"
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                  />
+                  <button onClick={copyPublicLink}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded font-medium text-white transition-colors"
+                    style={{ background: publicCopied ? '#059669' : '#374151', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {publicCopied ? <Check size={11} /> : <Copy size={11} />}
+                    {publicCopied ? 'Copied' : 'Copy link'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Invite form */}
           {isOwner && (
             <form onSubmit={handleShare} className="space-y-3">

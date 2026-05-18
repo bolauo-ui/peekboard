@@ -17,6 +17,7 @@ export interface CanvasEditorHandle {
   redo:  () => void;
   copy:  () => void;
   paste: () => void;
+  duplicateActive: () => void;
   flushSave: () => void;     // immediate save (Cmd+S, manual)
   applyAutoLayoutTo: (frame: fabric.Object) => void; // re-run after panel edits
   zoomIn:     () => void;
@@ -112,6 +113,16 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
     // Internal clipboard
     const internalClip = useRef<fabric.Object | null>(null);
+    // Last frame the user explicitly selected — persists after click-outside
+    // deselects the canvas so Export always targets the right frame.
+    const lastSelectedFrameRef = useRef<fabric.Object | null>(null);
+    // Separate clipboard for GIF/video — Fabric's clone() produces a static
+    // snapshot of the animated canvas element, so we bypass it entirely.
+    const mediaClip = useRef<{
+      url: string; type: 'gif'|'mp4'|'webm';
+      props: { left: number; top: number; scaleX: number; scaleY: number;
+               angle: number; opacity: number; clipRadius?: number };
+    } | null>(null);
 
     // Frame name edit overlay
     const [editingFrame, setEditingFrame] = useState<{
@@ -379,9 +390,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       const zoom = canvas.getZoom();
       const vpt  = canvas.viewportTransform!;
       const active = canvas.getActiveObject() as any;
+      // Priority: 1) currently selected frame  2) last explicitly selected frame
+      // 3) first frame on canvas  — never fall through to bounding-box when frames exist
+      const isFrame = (o: any) => o?.data?.objectType === 'frame' || o?.data?.type === 'frame';
       const frameObj: fabric.Object | undefined =
-        (active?.data?.objectType === 'frame' ? active : undefined) ??
-        (canvas.getObjects().find((o: any) => o.data?.objectType === 'frame') as fabric.Object | undefined);
+        (isFrame(active) ? active : undefined) ??
+        (isFrame(lastSelectedFrameRef.current) ? lastSelectedFrameRef.current! : undefined) ??
+        (canvas.getObjects().find((o: any) => isFrame(o)) as fabric.Object | undefined);
 
       if (frameObj) {
         const fw = (frameObj as any).getScaledWidth?.() ?? (frameObj as any).width  as number;
@@ -457,72 +472,183 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         if (!canvas) return Promise.resolve('');
 
-        return new Promise<string>(async (resolve) => {
-          // Dynamic import so gif-encoder-2 only loads when needed
-          const GIFEncoder = (await import('gif-encoder-2')).default;
-
-          // Clear selection so borders don't appear in frames
+        return new Promise<string>((resolve, reject) => {
+          // Snapshot BEFORE any mutation.
           const prevActive = canvas.getActiveObject();
+          const zoom       = canvas.getZoom();
+          const vpt        = canvas.viewportTransform!;
+          const origVpt    = [...vpt] as [number,number,number,number,number,number];
+
+          const restoreActive = () => {
+            canvas.setViewportTransform(origVpt);
+            if (prevActive) canvas.setActiveObject(prevActive);
+            canvas.renderAll();
+          };
+
+          // ── Determine export region in world-space ──────────────────────────
+          // Priority (evaluated BEFORE discardActiveObject wipes the ref):
+          //  ① Active object is a frame  → that frame's bounds
+          //  ② Active object is anything → that object's own bbox (not ALL objects)
+          //  ③ lastSelectedFrameRef      → that frame
+          //  ④ First frame on canvas     → that frame
+          //  ⑤ Tight bbox of all objects → last resort
+
+          const isFrame = (o: any) =>
+            o?.data?.objectType === 'frame' || o?.data?.type === 'frame';
+
+          let frameLeft: number, frameTop: number, frameW: number, frameH: number;
+
+          if (prevActive && isFrame(prevActive)) {
+            frameLeft = (prevActive as any).left ?? 0;
+            frameTop  = (prevActive as any).top  ?? 0;
+            frameW    = (prevActive as any).getScaledWidth?.()  ?? (prevActive as any).width  ?? 100;
+            frameH    = (prevActive as any).getScaledHeight?.() ?? (prevActive as any).height ?? 100;
+          } else if (prevActive) {
+            // Non-frame selected — use that object's bbox only.
+            const bb  = prevActive.getBoundingRect(true);
+            frameLeft = (bb.left   - vpt[4]) / zoom;
+            frameTop  = (bb.top    - vpt[5]) / zoom;
+            frameW    = bb.width   / zoom;
+            frameH    = bb.height  / zoom;
+          } else if (isFrame(lastSelectedFrameRef.current)) {
+            const f   = lastSelectedFrameRef.current!;
+            frameLeft = (f as any).left ?? 0;
+            frameTop  = (f as any).top  ?? 0;
+            frameW    = (f as any).getScaledWidth?.()  ?? (f as any).width  ?? 100;
+            frameH    = (f as any).getScaledHeight?.() ?? (f as any).height ?? 100;
+          } else {
+            const firstFrame = (canvas.getObjects() as any[]).find(o => isFrame(o));
+            if (firstFrame) {
+              frameLeft = firstFrame.left ?? 0;
+              frameTop  = firstFrame.top  ?? 0;
+              frameW    = firstFrame.getScaledWidth?.()  ?? firstFrame.width  ?? 100;
+              frameH    = firstFrame.getScaledHeight?.() ?? firstFrame.height ?? 100;
+            } else {
+              const objs = canvas.getObjects();
+              if (!objs.length) { reject(new Error('Nothing on the canvas to export.')); return; }
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              objs.forEach(o => {
+                minX = Math.min(minX, (o.left ?? 0));
+                minY = Math.min(minY, (o.top  ?? 0));
+                maxX = Math.max(maxX, (o.left ?? 0) + o.getScaledWidth());
+                maxY = Math.max(maxY, (o.top  ?? 0) + o.getScaledHeight());
+              });
+              frameLeft = minX; frameTop = minY;
+              frameW = maxX - minX; frameH = maxY - minY;
+            }
+          }
+
+          // Remove selection handles
           canvas.discardActiveObject();
           canvas.renderAll();
 
-          const zoom   = canvas.getZoom();
-          const { cropLeft, cropTop, cropWidth, cropHeight } = getFrameCrop(canvas);
+          // ── Output dimensions (long side capped at 800 px) ─────────────────
+          const MAX_SIDE = 800;
+          const scaleF   = Math.min(1, MAX_SIDE / frameW, MAX_SIDE / frameH);
+          const outW     = Math.max(1, Math.round(frameW * scaleF));
+          const outH     = Math.max(1, Math.round(frameH * scaleF));
 
-          // Output at a sensible fixed width (max 600px) so encoding stays fast
-          const MAX_W  = 600;
-          const scale  = cropWidth > MAX_W ? MAX_W / cropWidth : 1;
-          const outW   = Math.max(1, Math.round(cropWidth  * scale));
-          const outH   = Math.max(1, Math.round(cropHeight * scale));
+          // Export viewport: positions target region at (0,0) at scaleF zoom
+          const exportVpt: [number,number,number,number,number,number] = [
+            scaleF, 0, 0, scaleF,
+            -frameLeft * scaleF,
+            -frameTop  * scaleF,
+          ];
 
-          // 12 fps × 2 s = 24 frames — snappy capture, small file
-          const FPS        = 12;
-          const DURATION_S = 2;
-          const FRAME_MS   = Math.round(1000 / FPS);
-          const TOTAL      = FPS * DURATION_S;
+          const bgColor = (canvas.backgroundColor as string) || '#ffffff';
 
-          // 'octree' is O(n) vs neuquant's sampling — 5-10× faster encode
-          const encoder = new GIFEncoder(outW, outH, 'octree', true);
-          encoder.setDelay(FRAME_MS);
-          encoder.setRepeat(0);   // loop forever
-          encoder.start();
+          (async () => {
+            try {
+              const { GIFEncoder, quantize, applyPalette } = await import('gifenc');
 
-          // Scratch canvas we composite each frame onto at output size
-          const scratch    = document.createElement('canvas');
-          scratch.width    = outW;
-          scratch.height   = outH;
-          const scratchCtx = scratch.getContext('2d')!;
+              const TOTAL       = 10;
+              const PLAYBACK_MS = 100;
+              const CAPTURE_MS  = 30;
 
-          // Lower canvas element — this is what fabric draws onto
-          const lowerEl = canvas.getElement();
+              const gif     = GIFEncoder();
+              const scratch = document.createElement('canvas');
+              scratch.width = outW; scratch.height = outH;
+              const sCtx    = scratch.getContext('2d')!;
+              let   captured = 0;
 
-          let captured = 0;
-          const captureFrame = () => {
-            if (captured >= TOTAL) {
-              encoder.finish();
-              const buf  = encoder.out.getData() as Uint8Array;
-              const blob = new Blob([buf.buffer as ArrayBuffer], { type: 'image/gif' });
-              const url  = URL.createObjectURL(blob);
-              // Restore previous selection
-              if (prevActive) { canvas.setActiveObject(prevActive); canvas.renderAll(); }
-              resolve(url);
-              return;
+              const captureFrame = () => {
+                try {
+                  // Advance GIF animation loops on the main canvas
+                  canvas.renderAll();
+
+                  // ── Render to a fresh offscreen canvas ─────────────────────
+                  // We temporarily swap the viewport so isOnScreen() / object
+                  // transforms resolve against the export region, then render
+                  // each object to an offscreen canvas via Fabric's own
+                  // obj.render(ctx) pipeline.
+                  //
+                  // WHY NOT toDataURL / lowerEl drawImage:
+                  //   • toDataURL re-renders internally and silently fails for
+                  //     live <canvas> GIF sources (returns blank PNG).
+                  //   • lowerEl is the main canvas buffer; after setDimensions
+                  //     it clears and may not repopulate correctly.
+                  //
+                  // obj.render(offCtx) reads directly from fabricImg._element
+                  // (the live offCanvas the animation loop writes to) — always
+                  // current, same-origin, no CORS taint.
+
+                  const off  = document.createElement('canvas');
+                  off.width  = outW;
+                  off.height = outH;
+                  const offCtx = off.getContext('2d')!;
+
+                  // Fill board background (clearRect leaves transparent → black GIF)
+                  offCtx.fillStyle = bgColor;
+                  offCtx.fillRect(0, 0, outW, outH);
+
+                  // Swap viewport so objects know they're in the export region
+                  canvas.setViewportTransform(exportVpt);
+
+                  // Render every visible object into the offscreen canvas.
+                  // The viewport transform is baked into each object's cached
+                  // coords after setViewportTransform, so render() places them
+                  // correctly relative to (0,0) = top-left of export region.
+                  canvas.getObjects().forEach((obj: any) => {
+                    if (obj.visible === false) return;
+                    obj.render(offCtx);
+                  });
+
+                  // Restore main-canvas viewport immediately
+                  canvas.setViewportTransform(origVpt);
+
+                  // Copy offscreen → scratch (scratch persists across frames
+                  // for the bg-fill step; offscreen is GC'd after each capture)
+                  sCtx.drawImage(off, 0, 0);
+
+                  const rgba    = sCtx.getImageData(0, 0, outW, outH).data;
+                  const palette = quantize(rgba, 256, { format: 'rgb565' });
+                  const index   = applyPalette(rgba, palette, 'rgb565');
+                  gif.writeFrame(index, outW, outH, { palette, delay: PLAYBACK_MS });
+
+                  captured++;
+                  if (captured >= TOTAL) {
+                    gif.finish();
+                    restoreActive();
+                    const bytes = gif.bytesView();
+                    resolve(
+                      URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }))
+                    );
+                  } else {
+                    setTimeout(captureFrame, CAPTURE_MS);
+                  }
+                } catch (frameErr) {
+                  canvas.setViewportTransform(origVpt);
+                  restoreActive();
+                  reject(frameErr);
+                }
+              };
+
+              captureFrame();
+            } catch (err) {
+              restoreActive();
+              reject(err);
             }
-
-            // Force a fresh render then read the canvas pixels
-            canvas.renderAll();
-            scratchCtx.clearRect(0, 0, outW, outH);
-            scratchCtx.drawImage(
-              lowerEl,
-              cropLeft, cropTop, cropWidth, cropHeight,  // src crop
-              0, 0, outW, outH,                           // dst full
-            );
-            encoder.addFrame(scratchCtx);
-            captured++;
-            setTimeout(captureFrame, FRAME_MS);
-          };
-
-          captureFrame();
+          })();
         });
       },
       getCanvas:   () => fabricRef.current,
@@ -559,18 +685,74 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         });
       },
       copy: () => {
-        const obj = fabricRef.current?.getActiveObject();
-        if (obj) obj.clone((c: fabric.Object) => { internalClip.current = c; });
+        const obj = fabricRef.current?.getActiveObject() as any;
+        if (!obj) return;
+        const mt = obj.data?.mediaType as string | undefined;
+        if (mt === 'gif' || mt === 'mp4' || mt === 'webm') {
+          // Store URL + current transform — don't let Fabric snapshot the canvas
+          mediaClip.current = {
+            url:   obj.data.url,
+            type:  mt as 'gif'|'mp4'|'webm',
+            props: {
+              left:       obj.left   ?? 0,
+              top:        obj.top    ?? 0,
+              scaleX:     obj.scaleX ?? 1,
+              scaleY:     obj.scaleY ?? 1,
+              angle:      obj.angle  ?? 0,
+              opacity:    obj.opacity ?? 1,
+              clipRadius: (obj.clipPath as any)?.rx,
+            },
+          };
+          internalClip.current = null;
+        } else {
+          mediaClip.current = null;
+          obj.clone((c: fabric.Object) => { internalClip.current = c; });
+        }
       },
       paste: () => {
         const canvas = fabricRef.current;
-        if (!canvas || !internalClip.current) return;
+        if (!canvas) return;
+        if (mediaClip.current) {
+          const { url, type, props } = mediaClip.current;
+          const newProps = { ...props, left: props.left + 20, top: props.top + 20 };
+          mediaClip.current = { url, type, props: newProps }; // offset again on next paste
+          addMediaFn(canvas, url, type, newProps);
+          return;
+        }
+        if (!internalClip.current) return;
         internalClip.current.clone((c: fabric.Object) => {
           c.set({ left: (c.left ?? 0) + 20, top: (c.top ?? 0) + 20 });
           canvas.add(c); canvas.setActiveObject(c); canvas.renderAll();
           internalClip.current = c;
           scheduleRef.current(); pushHistory();
         });
+      },
+      duplicateActive: () => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+        const obj = canvas.getActiveObject() as any;
+        if (!obj) return;
+        const mt = obj.data?.mediaType as string | undefined;
+        if (mt === 'gif' || mt === 'mp4' || mt === 'webm') {
+          // Re-run the media loader with new ID + offset — stays animated
+          addMediaFn(canvas, obj.data.url, mt as 'gif'|'mp4'|'webm', {
+            // Omit id → addGif/addVideo assigns a new UUID and pushes to mediaItemsRef
+            left:       (obj.left   ?? 0) + 20,
+            top:        (obj.top    ?? 0) + 20,
+            scaleX:     obj.scaleX  ?? 1,
+            scaleY:     obj.scaleY  ?? 1,
+            angle:      obj.angle   ?? 0,
+            opacity:    obj.opacity ?? 1,
+            clipRadius: (obj.clipPath as any)?.rx,
+          });
+        } else {
+          obj.clone((cl: fabric.Object) => {
+            (cl as any).data = { ...(cl as any).data, id: uuidv4() };
+            cl.set({ left: (cl.left ?? 0) + 20, top: (cl.top ?? 0) + 20 });
+            canvas.add(cl); canvas.setActiveObject(cl); canvas.renderAll();
+            scheduleRef.current(); pushHistory();
+          });
+        }
       },
       applyAutoLayoutTo: (frame) => {
         const c = fabricRef.current; if (!c) return;
@@ -732,6 +914,16 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           ? JSON.parse(board.canvas_data)
           : { fabricData: {}, mediaItems: [] };
 
+        // Load media items AFTER fabricData is restored so Fabric's internal
+        // canvas.clear() (called inside loadFromJSON's callback) doesn't wipe
+        // GIFs that were added from cache before the clear fires.
+        const loadMediaItems = () => {
+          if (saved.mediaItems?.length) {
+            mediaItemsRef.current = saved.mediaItems;
+            saved.mediaItems.forEach(item => addMediaFn(canvas, item.url, item.type, item));
+          }
+        };
+
         if (saved.fabricData && Object.keys(saved.fabricData).length > 0) {
           canvas.loadFromJSON(saved.fabricData, () => {
             canvas.renderAll();
@@ -744,15 +936,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
               }
             });
             pushHistory();
+            loadMediaItems(); // ← must be AFTER fabricData is restored
           });
         } else {
           onBackgroundChange?.(DEFAULT_BG);
           pushHistory();
-        }
-
-        if (saved.mediaItems?.length) {
-          mediaItemsRef.current = saved.mediaItems;
-          saved.mediaItems.forEach(item => addMediaFn(canvas, item.url, item.type, item));
+          loadMediaItems();
         }
 
         // Restore viewport (zoom + pan) so refresh returns to last view.
@@ -1067,12 +1256,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         clearAllFrameStrokes();
         setFrameStroke(obj, true);
         onObjectSelect(obj); trackFramePos(obj ?? undefined);
+        if ((obj as any)?.data?.objectType === 'frame') lastSelectedFrameRef.current = obj;
       });
       canvas.on('selection:updated', e => {
         e.deselected?.forEach(o => setFrameStroke(o, false));
         const obj = e.selected?.[0] ?? null;
         setFrameStroke(obj, true);
         onObjectSelect(obj); trackFramePos(obj ?? undefined);
+        if ((obj as any)?.data?.objectType === 'frame') lastSelectedFrameRef.current = obj;
       });
       canvas.on('selection:cleared', () => {
         clearAllFrameStrokes();
@@ -1100,6 +1291,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             };
             const cp = (child as any).clipPath as any;
             if (cp) cp.set({ left: obj.left, top: obj.top, width: fw, height: fh });
+            // ── Sync child media item position so reload restores correctly ──
+            const childId = (child as any).data?.id;
+            if (childId && (child as any).data?.mediaType) {
+              const item = mediaItemsRef.current.find(m => m.id === childId);
+              if (item) {
+                item.left   = child.left   ?? item.left;
+                item.top    = child.top    ?? item.top;
+                item.scaleX = child.scaleX ?? item.scaleX;
+                item.scaleY = child.scaleY ?? item.scaleY;
+                item.angle  = child.angle  ?? item.angle;
+              }
+            }
           });
           // If this frame is auto-laying-out, re-run on any change to it.
           if (getAutoLayout(obj)) {
@@ -1113,6 +1316,21 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           // If we landed inside (or were inside) an auto-layout frame, re-run.
           relayoutForChild(canvas, obj);
           canvas.requestRenderAll();
+        }
+
+        // ── Sync moved/scaled/rotated media item into mediaItemsRef ─────────
+        // Without this, GIF/video positions are saved as their original drop
+        // coordinates and reload always snaps them back to where they landed.
+        if (obj.data?.id && obj.data?.mediaType) {
+          const item = mediaItemsRef.current.find(m => m.id === obj.data.id);
+          if (item) {
+            item.left    = obj.left    ?? item.left;
+            item.top     = obj.top     ?? item.top;
+            item.scaleX  = obj.scaleX  ?? item.scaleX;
+            item.scaleY  = obj.scaleY  ?? item.scaleY;
+            item.angle   = obj.angle   ?? item.angle;
+            item.opacity = obj.opacity ?? item.opacity;
+          }
         }
 
         pushHistory();

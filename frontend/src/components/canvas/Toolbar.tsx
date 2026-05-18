@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers, Layout } from 'lucide-react';
+import { MousePointer2, Hand, Type, MessageSquare, Upload, Download, ChevronLeft, Frame, Users, Layers, Layout, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Tool } from '@/types';
 import { uploadApi } from '@/lib/api';
@@ -18,6 +18,7 @@ interface Props {
   showLayers?: boolean;
   onToggleLayers?: () => void;
   onShare?: () => void;
+  exportingGif?: boolean;
 }
 
 const TOOLS: { id: Tool; icon: React.ReactNode; label: string }[] = [
@@ -48,7 +49,7 @@ const EXPORT_FORMATS: { id: ExportFormat; label: string }[] = [
 
 export default function Toolbar({
   activeTool, onToolChange, onAddText, onMediaAdded, onExport, role, boardName, onBack,
-  saveStatus, showLayers, onToggleLayers, onShare,
+  saveStatus, showLayers, onToggleLayers, onShare, exportingGif,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -221,15 +222,22 @@ export default function Toolbar({
       {/* Export with format dropdown */}
       <div ref={exportBtnRef} className="relative flex-shrink-0">
         <button
-          title={`Export as ${exportFormat.toUpperCase()}`}
-          onClick={() => setShowExportMenu(v => !v)}
+          title={exportingGif ? 'Exporting GIF…' : `Export as ${exportFormat.toUpperCase()}`}
+          onClick={() => { if (!exportingGif) setShowExportMenu(v => !v); }}
+          disabled={exportingGif}
           className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-md transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = showExportMenu ? 'var(--bg-hover)' : 'transparent'; e.currentTarget.style.color = showExportMenu ? 'var(--text-primary)' : 'var(--text-secondary)'; }}
+          style={{
+            color: exportingGif ? 'var(--accent)' : 'var(--text-secondary)',
+            cursor: exportingGif ? 'default' : 'pointer',
+          }}
+          onMouseEnter={e => { if (!exportingGif) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+          onMouseLeave={e => { if (!exportingGif) { e.currentTarget.style.background = showExportMenu ? 'var(--bg-hover)' : 'transparent'; e.currentTarget.style.color = showExportMenu ? 'var(--text-primary)' : 'var(--text-secondary)'; } }}
         >
-          <Download size={13} />
-          <span className="hidden sm:inline">Export</span>
+          {exportingGif
+            ? <Loader2 size={13} className="animate-spin" />
+            : <Download size={13} />
+          }
+          <span className="hidden sm:inline">{exportingGif ? 'Exporting…' : 'Export'}</span>
         </button>
 
         {showExportMenu && (

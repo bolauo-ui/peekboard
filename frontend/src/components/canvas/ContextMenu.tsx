@@ -10,11 +10,12 @@ interface Props {
   canEdit: boolean;
   onClose: () => void;
   onChange: () => void;        // notify parent so it can schedule save / re-render
+  onDuplicate?: () => void;    // uses editor's duplicateActive() so GIFs stay animated
 }
 
 // Compact dark-themed context menu, opened by right-clicking any canvas
 // object. Mirrors the standard design-tool z-order + copy / delete menu.
-export default function ContextMenu({ canvas, x, y, target, canEdit, onClose, onChange }: Props) {
+export default function ContextMenu({ canvas, x, y, target, canEdit, onClose, onChange, onDuplicate }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close on outside-click or Escape.
@@ -72,12 +73,19 @@ export default function ContextMenu({ canvas, x, y, target, canEdit, onClose, on
         <Divider />
         <MenuItem
           icon={<Copy size={13} />} label="Duplicate" hint="⌘D"
-          onClick={() => run(() => {
-            target.clone((clone: fabric.Object) => {
-              clone.set({ left: (clone.left ?? 0) + 20, top: (clone.top ?? 0) + 20 });
-              canvas?.add(clone); canvas?.setActiveObject(clone);
-            });
-          })}
+          onClick={() => {
+            if (onDuplicate) {
+              onDuplicate();
+              onClose();
+            } else {
+              run(() => {
+                target.clone((clone: fabric.Object) => {
+                  clone.set({ left: (clone.left ?? 0) + 20, top: (clone.top ?? 0) + 20 });
+                  canvas?.add(clone); canvas?.setActiveObject(clone);
+                });
+              });
+            }
+          }}
         />
         <MenuItem
           icon={<Trash2 size={13} />} label="Delete" hint="Del"

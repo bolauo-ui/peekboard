@@ -12,6 +12,7 @@ import ResetPassword from '@/pages/ResetPassword';
 import VerifyEmail from '@/pages/VerifyEmail';
 import MagicLink from '@/pages/MagicLink';
 import Mockups from '@/pages/Mockups';
+import PublicBoardView from '@/pages/PublicBoardView';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/mockups"         element={<PrivateRoute><Mockups /></PrivateRoute>} />
         <Route path="/verify-email"    element={<VerifyEmail />} />
         <Route path="/magic-link"      element={<MagicLink />} />
+        <Route path="/view/:token"     element={<PublicBoardView />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

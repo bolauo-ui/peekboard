@@ -143,6 +143,16 @@ export const boardsApi = {
   thumbnail: (id: string, image: string) =>
     http.post<{ success: boolean; thumbnail_url: string }>(`/boards/${id}/thumbnail`, { image }).then((r) => r.data),
 
+  // Public link (view without account)
+  getPublicLink: (id: string) =>
+    http.get<{ public_token: string | null }>(`/boards/${id}/public-link`).then(r => r.data),
+  togglePublicLink: (id: string, enabled: boolean) =>
+    http.post<{ success: boolean; public_token: string | null }>(`/boards/${id}/public-link`, { enabled }).then(r => r.data),
+
+  // Fetch a board by public token — no auth needed (plain fetch)
+  getPublic: (token: string): Promise<{ board: { id: string; name: string; canvas_data: string; width: number; height: number; thumbnail_url?: string; owner_name: string; updated_at: string } }> =>
+    fetch(`/api/boards/public/${token}`).then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); }),
+
   // Version history.
   history: (id: string) =>
     http.get<{ snapshots: BoardSnapshot[] }>(`/boards/${id}/history`).then((r) => r.data),

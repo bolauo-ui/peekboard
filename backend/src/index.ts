@@ -81,6 +81,8 @@ interface Board {
   project_id?:    string | null;
   // Persisted canvas snapshot used as the dashboard card preview.
   thumbnail_url?: string;
+  // When set, /view/:public_token serves the board without authentication.
+  public_token?:  string;
 }
 interface Project {
   id: string; owner_id: string; name: string;
@@ -1504,6 +1506,48 @@ Return ONLY valid JSON — no markdown, no prose outside the JSON object.
     console.error('[linkedin-score] error', err);
     res.status(500).json({ error: 'Analysis failed', detail: String(err?.message ?? err) });
   }
+});
+
+// ── Public board view (no auth) ───────────────────────────────────────────────
+
+// Fetch board data by public token — no authentication required
+app.get('/api/boards/public/:token', (req, res) => {
+  const db = readDb();
+  const board = db.boards.find(b => b.public_token === req.params.token);
+  if (!board) { res.status(404).json({ error: 'Board not found or link disabled' }); return; }
+  const owner = db.users.find(u => u.id === board.owner_id);
+  res.json({
+    board: {
+      id:          board.id,
+      name:        board.name,
+      canvas_data: board.canvas_data,
+      width:       board.width,
+      height:      board.height,
+      thumbnail_url: board.thumbnail_url,
+      owner_name:  owner?.name ?? 'Unknown',
+      updated_at:  board.updated_at,
+    },
+  });
+});
+
+// Toggle public link on/off — owner only
+app.post('/api/boards/:id/public-link', authenticate, (req: any, res) => {
+  const db = readDb();
+  const board = db.boards.find(b => b.id === req.params.id && b.owner_id === req.user.id);
+  if (!board) { res.status(404).json({ error: 'Not found' }); return; }
+  const { enabled } = req.body;
+  if (enabled && !board.public_token) board.public_token = uuidv4();
+  if (!enabled) delete board.public_token;
+  writeDb(db);
+  res.json({ success: true, public_token: board.public_token ?? null });
+});
+
+// Return existing public token for a board (owner only)
+app.get('/api/boards/:id/public-link', authenticate, (req: any, res) => {
+  const db = readDb();
+  const board = db.boards.find(b => b.id === req.params.id && b.owner_id === req.user.id);
+  if (!board) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json({ public_token: board.public_token ?? null });
 });
 
 // ── Mockup snapshots ──────────────────────────────────────────────────────────
