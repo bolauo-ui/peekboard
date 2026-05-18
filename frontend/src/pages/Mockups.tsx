@@ -431,64 +431,112 @@ function LinkedInDesktopPost({ profile, onAvatarChange, creative, onCreativeChan
 // ── LINKEDIN MOBILE ────────────────────────────────────────────────────────────
 
 function LinkedInMobilePost({ profile, onAvatarChange, creative, onCreativeChange }: MockupProps) {
+  const font = '"system-ui",-apple-system,"Segoe UI",sans-serif';
   return (
     <PhoneFrame>
-      <div style={{ fontFamily: '"system-ui",-apple-system,sans-serif' }}>
-        {/* Nav */}
-        <div style={{ background: '#fff', borderBottom: '1px solid #e8e8e8', height: 52,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0 4px' }}>
-          <LinkedInLogo size={30} />
-          <Search size={22} color="#666" strokeWidth={2} />
-          <div style={{ position: 'relative' }}>
-            <Home size={22} color="#0A66C2" strokeWidth={2} />
-            <div style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, background: '#CC1016', borderRadius: '50%' }} />
+      <div style={{ fontFamily: font, display: 'flex', flexDirection: 'column', height: '100%', background: '#F3F2EF' }}>
+
+        {/* ── Top bar: logo + search + avatar ── */}
+        <div style={{ background: '#fff', borderBottom: '1px solid #e8e8e8',
+          padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <LinkedInLogo size={28} />
+          <div style={{ flex: 1, background: '#EEF3F8', borderRadius: 4, padding: '6px 10px',
+            display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Search size={13} color="#888" strokeWidth={2.5} />
+            <span style={{ fontSize: 13, color: '#999' }}>Search</span>
           </div>
-          <MessageSquare size={22} color="#666" strokeWidth={2} />
-          <Bell size={22} color="#666" strokeWidth={2} />
-          <EditableAvatar src={profile.avatar} initials={profile.initials} color={profile.color} size={26} onUpload={onAvatarChange} />
+          <EditableAvatar src={profile.avatar} initials={profile.initials} color={profile.color}
+            size={28} onUpload={onAvatarChange} />
         </div>
 
-        {/* Feed */}
-        <div style={{ background: '#F3F2EF' }}>
+        {/* ── Scrollable feed ── */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Post card */}
           <div style={{ background: '#fff', marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 8, padding: '12px 12px 6px', alignItems: 'flex-start' }}>
-              <EditableAvatar src={profile.avatar} initials={profile.initials} color={profile.color} size={40} onUpload={onAvatarChange} />
+            {/* Post header */}
+            <div style={{ display: 'flex', gap: 10, padding: '12px 12px 8px', alignItems: 'flex-start' }}>
+              <EditableAvatar src={profile.avatar} initials={profile.initials} color={profile.color}
+                size={42} onUpload={onAvatarChange} />
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <E style={{ fontWeight: 700, fontSize: 14, color: '#191919', display: 'block' }}>{profile.name}</E>
-                    <E style={{ fontSize: 12, color: '#666', display: 'block', lineHeight: 1.3 }}>{profile.headline}</E>
-                    <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                    <E style={{ fontSize: 12, color: '#666', display: 'block', lineHeight: 1.35, marginTop: 1 }}>{profile.headline}</E>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 3, alignItems: 'center' }}>
                       <E style={{ fontSize: 11, color: '#888' }}>2h</E>
-                      <span style={{ fontSize: 11, color: '#aaa' }}>· 🌐</span>
+                      <span style={{ fontSize: 11, color: '#bbb' }}>·</span>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="9"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/>
+                      </svg>
                     </div>
                   </div>
-                  <MoreHorizontal size={20} color="#666" />
+                  <MoreHorizontal size={18} color="#888" />
                 </div>
               </div>
             </div>
-            <E as="div" style={{ padding: '0 12px 10px', fontSize: 14, color: '#191919', lineHeight: 1.55, display: 'block', whiteSpace: 'pre-wrap' }}>
+
+            {/* Post text */}
+            <E as="div" style={{ padding: '0 12px 10px', fontSize: 14, color: '#191919',
+              lineHeight: 1.55, display: 'block', whiteSpace: 'pre-wrap' }}>
               {`Not technology. Not talent. Measurement.\n\nAI productivity gains should be measured in more than minutes saved. Drop a comment for early access to our new whitepaper 🚀`}
             </E>
+
+            {/* Creative */}
             <CreativeZone creative={creative} onCreativeChange={onCreativeChange} aspectRatio="1200/627" label="1200 × 627" />
-            <div style={{ padding: '8px 12px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+
+            {/* Reactions row */}
+            <div style={{ padding: '7px 12px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                <span style={{ fontSize: 14 }}>👍❤️</span>
-                <E style={{ fontSize: 12, color: '#888', marginLeft: 2 }}>127</E>
+                <span style={{ fontSize: 14 }}>👍❤️💡</span>
+                <E style={{ fontSize: 12, color: '#888', marginLeft: 3 }}>127</E>
               </div>
-              <E style={{ fontSize: 12, color: '#888' }}>23 comments</E>
+              <E style={{ fontSize: 12, color: '#888' }}>23 comments · 8 reposts</E>
             </div>
+
+            {/* Action bar */}
             <div style={{ display: 'flex', borderTop: '1px solid #e8e8e8' }}>
-              {[['👍','Like'],['💬','Comment'],['🔁','Repost'],['✉️','Send']].map(([i,l]) => (
-                <button key={l} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '9px 2px', fontSize: 11, fontWeight: 600, color: '#666',
+              {[['👍','Like'],['💬','Comment'],['🔁','Repost'],['✉️','Send']].map(([ico, lbl]) => (
+                <button key={lbl} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '10px 2px', fontSize: 11, fontWeight: 600, color: '#666',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                  <span>{i}</span><span>{l}</span>
+                  <span style={{ fontSize: 14 }}>{ico}</span><span>{lbl}</span>
                 </button>
               ))}
             </div>
           </div>
         </div>
+
+        {/* ── Bottom tab bar ── */}
+        <div style={{ background: '#fff', borderTop: '1px solid #e8e8e8',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+          padding: '8px 0 4px', flexShrink: 0 }}>
+          {[
+            { icon: <Home size={22} strokeWidth={1.8} />, label: 'Home', active: true },
+            { icon: <Users size={22} strokeWidth={1.8} />, label: 'Network' },
+            { icon: (
+                <div style={{ width: 36, height: 36, background: '#0A66C2', borderRadius: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
+                  <span style={{ color: '#fff', fontSize: 22, lineHeight: 1, fontWeight: 300 }}>+</span>
+                </div>
+              ), label: '', noLabel: true },
+            { icon: <Bell size={22} strokeWidth={1.8} />, label: 'Notif.', badge: true },
+            { icon: <Briefcase size={22} strokeWidth={1.8} />, label: 'Jobs' },
+          ].map(({ icon, label, active, badge, noLabel }, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+              gap: 2, cursor: 'pointer', position: 'relative', minWidth: 48 }}>
+              <div style={{ color: active ? '#0A66C2' : '#666', position: 'relative' }}>
+                {icon}
+                {badge && (
+                  <div style={{ position: 'absolute', top: -2, right: -4, width: 14, height: 14,
+                    background: '#CC1016', borderRadius: '50%', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>3</div>
+                )}
+              </div>
+              {!noLabel && <span style={{ fontSize: 10, color: active ? '#0A66C2' : '#666', fontWeight: active ? 600 : 400 }}>{label}</span>}
+            </div>
+          ))}
+        </div>
+
       </div>
     </PhoneFrame>
   );
