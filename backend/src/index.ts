@@ -1665,7 +1665,10 @@ if (IS_PROD) {
     const ownerName = owner?.name ?? 'Someone';
     const title    = `${board.name} — Peekboard`;
     const desc     = `View this board by ${ownerName} on Peekboard`;
-    const image    = board.thumbnail_url ?? 'https://peekboard.app/og-default.png';
+    const baseUrl  = process.env.APP_URL ?? 'https://peekboard-production.up.railway.app';
+    const image    = board.thumbnail_url
+      ? (board.thumbnail_url.startsWith('http') ? board.thumbnail_url : `${baseUrl}${board.thumbnail_url}`)
+      : `${baseUrl}/og-image.jpg`;
     const url      = `${req.protocol}://${req.get('host')}/view/${req.params.token}`;
 
     const ogTags = `
