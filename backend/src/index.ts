@@ -6,6 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import rateLimit from 'express-rate-limit';
 import { sendMail, welcomeEmail, inviteEmail, resetEmail, verifyEmail, mentionEmail, magicLinkEmail, isMailConfigured } from './mailer';
 import { makeWelcomeCanvas } from './welcomeBoard';
 
@@ -188,6 +189,31 @@ const corsOrigin = IS_PROD
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// General API limiter — generous for normal use, blocks abuse
+app.use('/api', rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 500,                   // 500 requests per window per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again shortly.' },
+  skip: (req) => !IS_PROD,    // only enforce in production
+}));
+
+// Stricter limit on auth endpoints to prevent brute force
+app.use('/api/auth/login', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many login attempts, please try again in 15 minutes.' },
+  skip: (req) => !IS_PROD,
+}));
+app.use('/api/auth/register', rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many accounts created from this IP, please try again later.' },
+  skip: (req) => !IS_PROD,
+}));
 
 // ── Static frontend (production) ──────────────────────────────────────────────
 if (IS_PROD) {
