@@ -225,6 +225,7 @@ function LinkedInLogo({ size }: { size: number }) {
 // ── LINKEDIN DESKTOP ──────────────────────────────────────────────────────────
 
 function LinkedInDesktopPost({ profile, onAvatarChange, creative, onCreativeChange }: MockupProps) {
+  const [ratio, setRatio] = React.useState<'1:1' | '4:5'>('1:1');
   return (
     <div style={{ width: 1080, fontFamily: '"system-ui",-apple-system,"Segoe UI",sans-serif', fontSize: 14, userSelect: 'none' }}>
       {/* Navbar — 52px, white, bottom border */}
@@ -341,8 +342,37 @@ function LinkedInDesktopPost({ profile, onAvatarChange, creative, onCreativeChan
               lineHeight: 1.65, display: 'block', whiteSpace: 'pre-wrap' }}>
               {`UK public sector productivity has been stagnant for three decades. Costs have risen. Demand has intensified.\n\nOur new whitepaper — The Agentic Blueprint for Public Sector Productivity — explores how AI can close the gap. Drop a comment if you'd like early access.`}
             </E>
-            {/* Creative — 1200:627 ratio */}
-            <CreativeZone creative={creative} onCreativeChange={onCreativeChange} aspectRatio="1200/627" label="1200 × 627" />
+            {/* Format toggle + Creative zone */}
+            <div style={{ position: 'relative' }}>
+              {/* Aspect ratio toggle pills */}
+              <div style={{ display: 'flex', gap: 6, padding: '0 16px 10px', justifyContent: 'flex-end' }}>
+                {(['1:1', '4:5'] as const).map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setRatio(r)}
+                    style={{
+                      background: ratio === r ? '#0A66C2' : '#f0f0f0',
+                      color: ratio === r ? '#fff' : '#555',
+                      border: 'none', borderRadius: 6, padding: '4px 10px',
+                      fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      transition: 'all 0.15s',
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    {r}
+                    <span style={{ marginLeft: 4, fontWeight: 400, opacity: 0.75 }}>
+                      {r === '1:1' ? '1080×1080' : '1080×1350'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <CreativeZone
+                creative={creative}
+                onCreativeChange={onCreativeChange}
+                aspectRatio={ratio === '1:1' ? '1/1' : '4/5'}
+                label={ratio === '1:1' ? '1080 × 1080' : '1080 × 1350'}
+              />
+            </div>
             {/* Reactions */}
             <div style={{ padding: '8px 16px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
