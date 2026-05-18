@@ -655,7 +655,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
                     restoreActive();
                     const bytes = gif.bytesView();
                     resolve(
-                      URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }))
+                      URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/gif' }))
                     );
                   } else {
                     setTimeout(captureFrame, CAPTURE_MS);
