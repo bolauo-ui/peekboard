@@ -247,6 +247,29 @@ export const analyseApi = {
     http.post<LinkedInScore>('/analyse/linkedin', { image, context }).then(r => r.data),
 };
 
+// ── Mockup snapshots ──────────────────────────────────────────────────────────
+export interface MockupSnapshot {
+  id:            string;
+  owner_id:      string;
+  name:          string;
+  template_id:   string;
+  profile:       string;   // JSON string
+  creatives:     string;   // JSON string
+  thumbnail_url?: string;
+  created_at:    string;
+  updated_at:    string;
+}
+export const mockupsApi = {
+  list: () =>
+    http.get<{ mockups: MockupSnapshot[] }>('/mockups').then(r => r.data),
+  save: (data: { name: string; template_id: string; profile: object; creatives: object; thumbnail_url?: string }) =>
+    http.post<{ mockup: MockupSnapshot }>('/mockups', data).then(r => r.data),
+  update: (id: string, data: { name?: string; profile?: object; creatives?: object; thumbnail_url?: string }) =>
+    http.put<{ mockup: MockupSnapshot }>(`/mockups/${id}`, data).then(r => r.data),
+  delete: (id: string) =>
+    http.delete<{ success: boolean }>(`/mockups/${id}`).then(r => r.data),
+};
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 export const uploadApi = {
   upload: (file: File, onProgress?: (pct: number) => void) => {

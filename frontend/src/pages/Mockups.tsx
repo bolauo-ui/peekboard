@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import {
@@ -8,6 +8,7 @@ import {
   MessageCircle, CheckCircle, ChevronDown, ChevronRight, Send, X, UserPlus,
 } from 'lucide-react';
 import PeekboardLogo from '@/components/PeekboardLogo';
+import { mockupsApi, type MockupSnapshot } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -2112,6 +2113,63 @@ export default function Mockups() {
   const [profile,  setProfile]  = useState<Profile>(DEFAULT_PROFILE);
   const [creatives,setCreatives]= useState<Record<string, string | null>>({});
 
+  // ── Save / load ───────────────────────────────────────────────────────────
+  const [savedMockups,   setSavedMockups]   = useState<MockupSnapshot[]>([]);
+  const [currentSaveId,  setCurrentSaveId]  = useState<string | null>(null);
+  const [saveStatus,     setSaveStatus]     = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName,       setSaveName]       = useState('');
+
+  // Load saved mockups on mount
+  useEffect(() => {
+    mockupsApi.list().then(d => setSavedMockups(d.mockups)).catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    const name = saveName.trim() || `${activeMeta.platform} · ${activeMeta.name}`;
+    setSaveStatus('saving');
+    try {
+      if (currentSaveId) {
+        const d = await mockupsApi.update(currentSaveId, {
+          name, profile, creatives: { [active]: creative },
+        });
+        setSavedMockups(prev => prev.map(m => m.id === currentSaveId ? d.mockup : m));
+      } else {
+        const d = await mockupsApi.save({
+          name, template_id: active, profile, creatives: { [active]: creative },
+        });
+        setSavedMockups(prev => [d.mockup, ...prev]);
+        setCurrentSaveId(d.mockup.id);
+      }
+      setSaveStatus('saved');
+      setShowSaveDialog(false);
+      setSaveName('');
+      setTimeout(() => setSaveStatus('idle'), 2500);
+    } catch {
+      setSaveStatus('idle');
+    }
+  };
+
+  const handleLoadSaved = (snap: MockupSnapshot) => {
+    try {
+      const p = JSON.parse(snap.profile);
+      const c = JSON.parse(snap.creatives) as Record<string, string | null>;
+      setActive(snap.template_id);
+      setProfile(p);
+      setCreatives(prev => ({ ...prev, ...c }));
+      setCurrentSaveId(snap.id);
+      setSaveName(snap.name);
+      setSaveStatus('idle');
+    } catch {}
+  };
+
+  const handleDeleteSaved = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await mockupsApi.delete(id).catch(() => {});
+    setSavedMockups(prev => prev.filter(m => m.id !== id));
+    if (currentSaveId === id) { setCurrentSaveId(null); setSaveName(''); }
+  };
+
   // ── Comment system ────────────────────────────────────────────────────────
   const [commentMode,  setCommentMode]  = useState(false);
   const [comments,     setComments]     = useState<CommentPin[]>([]);
@@ -2249,6 +2307,67 @@ export default function Mockups() {
 
         <div style={{ width: 1, height: 20, background: '#e0e0e0' }} />
 
+        {/* Save button */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              if (saveStatus === 'saving') return;
+              setSaveName(saveName || `${activeMeta.platform} · ${activeMeta.name}`);
+              setShowSaveDialog(v => !v);
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
+              background: saveStatus === 'saved' ? 'rgba(52,211,153,0.15)' : '#f5f5f5',
+              color:      saveStatus === 'saved' ? '#10b981' : '#333',
+            }}
+            onMouseEnter={e => { if (saveStatus !== 'saved') e.currentTarget.style.background = '#ebebeb'; }}
+            onMouseLeave={e => { if (saveStatus !== 'saved') e.currentTarget.style.background = '#f5f5f5'; }}
+          >
+            {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓ Saved' : '↓ Save'}
+          </button>
+
+          {showSaveDialog && (
+            <div style={{
+              position: 'absolute', top: 40, right: 0, zIndex: 200,
+              background: '#fff', borderRadius: 10, padding: 16, width: 260,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.08)',
+              fontFamily: '"Inter",system-ui,sans-serif',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0a0a0a', marginBottom: 10 }}>
+                {currentSaveId ? 'Update saved mockup' : 'Save mockup'}
+              </div>
+              <input
+                autoFocus
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setShowSaveDialog(false); }}
+                placeholder="Name this mockup…"
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                  border: '1px solid #e0e0e0', borderRadius: 7, fontSize: 13,
+                  outline: 'none', marginBottom: 10, fontFamily: 'inherit',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowSaveDialog(false)}
+                  style={{ background: 'none', border: 'none', padding: '6px 12px', borderRadius: 6,
+                    fontSize: 13, cursor: 'pointer', color: '#666', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSave}
+                  style={{ background: '#1BAFD8', border: 'none', padding: '6px 16px', borderRadius: 6,
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff', fontFamily: 'inherit' }}>
+                  {currentSaveId ? 'Update' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ width: 1, height: 20, background: '#e0e0e0' }} />
+
         {/* Invite button */}
         <button
           onClick={() => setShowInvite(true)}
@@ -2307,6 +2426,43 @@ export default function Mockups() {
               })}
             </div>
           ))}
+
+          {/* Saved mockups */}
+          {savedMockups.length > 0 && (
+            <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', letterSpacing: '0.08em',
+                textTransform: 'uppercase', padding: '2px 10px 6px' }}>Saved</div>
+              {savedMockups.map(snap => (
+                <button key={snap.id}
+                  onClick={() => handleLoadSaved(snap)}
+                  style={{
+                    width: '100%', textAlign: 'left', border: 'none', borderRadius: 8,
+                    padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                    background: currentSaveId === snap.id ? 'rgba(27,175,216,0.1)' : 'none',
+                  }}
+                  onMouseEnter={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = '#f5f5f5'; }}
+                  onMouseLeave={e => { if (currentSaveId !== snap.id) e.currentTarget.style.background = ''; }}>
+                  <span style={{ fontSize: 13, flexShrink: 0 }}>📄</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: currentSaveId === snap.id ? '#1BAFD8' : '#0a0a0a',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.name}</div>
+                    <div style={{ fontSize: 10, color: '#aaa', marginTop: 1 }}>
+                      {new Date(snap.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </div>
+                  </div>
+                  <button
+                    onClick={e => handleDeleteSaved(snap.id, e)}
+                    title="Delete"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                      color: '#ccc', fontSize: 14, lineHeight: 1, flexShrink: 0, borderRadius: 4 }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#e53e3e')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}>
+                    ×
+                  </button>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Canvas area */}

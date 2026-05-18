@@ -130,25 +130,38 @@ interface BoardStar {
   user_id:  string;
   board_id: string;
 }
+interface MockupSnapshot {
+  id:            string;
+  owner_id:      string;
+  name:          string;
+  template_id:   string;   // e.g. 'linkedin-desktop'
+  profile:       string;   // JSON-stringified Profile
+  creatives:     string;   // JSON-stringified Record<string, string|null>
+  thumbnail_url?: string;
+  created_at:    string;
+  updated_at:    string;
+}
 interface DbSchema {
   users: User[]; boards: Board[]; board_access: BoardAccess[]; comments: Comment[];
-  password_resets?: PasswordReset[];
-  email_verifies?:  EmailVerify[];
-  stars?:           BoardStar[];
-  projects?:        Project[];
-  magic_links?:     MagicLink[];
-  notifications?:   Notification[];
+  password_resets?:    PasswordReset[];
+  email_verifies?:     EmailVerify[];
+  stars?:              BoardStar[];
+  projects?:           Project[];
+  magic_links?:        MagicLink[];
+  notifications?:      Notification[];
+  mockup_snapshots?:   MockupSnapshot[];
 }
 
 const readDb = (): DbSchema => {
   try {
     const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DbSchema;
-    db.password_resets ??= [];
-    db.email_verifies  ??= [];
-    db.stars           ??= [];
-    db.projects        ??= [];
-    db.magic_links     ??= [];
-    db.notifications   ??= [];
+    db.password_resets    ??= [];
+    db.email_verifies     ??= [];
+    db.stars              ??= [];
+    db.projects           ??= [];
+    db.magic_links        ??= [];
+    db.notifications      ??= [];
+    db.mockup_snapshots   ??= [];
     return db;
   } catch {
     return {
@@ -1491,6 +1504,68 @@ Return ONLY valid JSON — no markdown, no prose outside the JSON object.
     console.error('[linkedin-score] error', err);
     res.status(500).json({ error: 'Analysis failed', detail: String(err?.message ?? err) });
   }
+});
+
+// ── Mockup snapshots ──────────────────────────────────────────────────────────
+
+// List all saved mockups for the current user
+app.get('/api/mockups', authenticate, (req: any, res) => {
+  const db = readDb();
+  const list = (db.mockup_snapshots ?? [])
+    .filter(m => m.owner_id === req.user.id)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  res.json({ mockups: list });
+});
+
+// Save a new mockup snapshot
+app.post('/api/mockups', authenticate, (req: any, res) => {
+  const { name, template_id, profile, creatives, thumbnail_url } = req.body;
+  if (!name || !template_id) {
+    res.status(400).json({ error: 'name and template_id are required' }); return;
+  }
+  const db = readDb();
+  db.mockup_snapshots ??= [];
+  const snap: MockupSnapshot = {
+    id:           uuidv4(),
+    owner_id:     req.user.id,
+    name,
+    template_id,
+    profile:      typeof profile  === 'string' ? profile  : JSON.stringify(profile  ?? {}),
+    creatives:    typeof creatives === 'string' ? creatives : JSON.stringify(creatives ?? {}),
+    thumbnail_url,
+    created_at:   new Date().toISOString(),
+    updated_at:   new Date().toISOString(),
+  };
+  db.mockup_snapshots.push(snap);
+  writeDb(db);
+  res.status(201).json({ mockup: snap });
+});
+
+// Update an existing mockup snapshot
+app.put('/api/mockups/:id', authenticate, (req: any, res) => {
+  const db = readDb();
+  db.mockup_snapshots ??= [];
+  const snap = db.mockup_snapshots.find(m => m.id === req.params.id && m.owner_id === req.user.id);
+  if (!snap) { res.status(404).json({ error: 'Not found' }); return; }
+  const { name, profile, creatives, thumbnail_url } = req.body;
+  if (name !== undefined)      snap.name      = name;
+  if (profile !== undefined)   snap.profile   = typeof profile   === 'string' ? profile   : JSON.stringify(profile);
+  if (creatives !== undefined) snap.creatives = typeof creatives === 'string' ? creatives : JSON.stringify(creatives);
+  if (thumbnail_url !== undefined) snap.thumbnail_url = thumbnail_url;
+  snap.updated_at = new Date().toISOString();
+  writeDb(db);
+  res.json({ mockup: snap });
+});
+
+// Delete a mockup snapshot
+app.delete('/api/mockups/:id', authenticate, (req: any, res) => {
+  const db = readDb();
+  db.mockup_snapshots ??= [];
+  const idx = db.mockup_snapshots.findIndex(m => m.id === req.params.id && m.owner_id === req.user.id);
+  if (idx === -1) { res.status(404).json({ error: 'Not found' }); return; }
+  db.mockup_snapshots.splice(idx, 1);
+  writeDb(db);
+  res.json({ success: true });
 });
 
 app.use((err: Error, _req: any, res: any, _next: any) => {
