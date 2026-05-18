@@ -1665,6 +1665,16 @@ const ROLE_BG: Record<string, string> = {
 
 // ── Comment pin dot ────────────────────────────────────────────────────────────
 
+// Render comment text with @mentions highlighted in brand blue
+function renderMentions(text: string): React.ReactNode {
+  const parts = text.split(/(@\w[\w\s]*?)(?=\s|$|@)/g);
+  return parts.map((part, i) =>
+    part.startsWith('@')
+      ? <span key={i} style={{ color: '#1BAFD8', fontWeight: 600 }}>{part}</span>
+      : part
+  );
+}
+
 function CommentPinMarker({ pin, index, active, resolved, onClick }: {
   pin: CommentPin; index: number; active: boolean; resolved: boolean;
   onClick: (e: React.MouseEvent) => void;
@@ -1754,7 +1764,7 @@ function CommentPopup({ pin, onClose, onResolve, onReply }: {
 
       {/* Original comment */}
       <div style={{ padding: '10px 12px', borderBottom: pin.replies.length > 0 ? '1px solid #f0f0f0' : 'none' }}>
-        <p style={{ margin: 0, fontSize: 13, color: '#333', lineHeight: 1.55 }}>{pin.text}</p>
+        <p style={{ margin: 0, fontSize: 13, color: '#333', lineHeight: 1.55 }}>{renderMentions(pin.text)}</p>
       </div>
 
       {/* Replies */}
@@ -1768,7 +1778,7 @@ function CommentPopup({ pin, onClose, onResolve, onReply }: {
               <span style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>{r.author}</span>
               <span style={{ fontSize: 11, color: '#bbb' }}>{fmt(r.createdAt)}</span>
             </div>
-            <p style={{ margin: 0, fontSize: 13, color: '#333', lineHeight: 1.5 }}>{r.text}</p>
+            <p style={{ margin: 0, fontSize: 13, color: '#333', lineHeight: 1.5 }}>{renderMentions(r.text)}</p>
           </div>
         </div>
       ))}
@@ -2027,7 +2037,7 @@ function CommentsPanel({ comments, activePin, onSelectPin, onResolve, onReply, c
                   </div>
                   <p style={{ margin: '0 0 6px', fontSize: 12, color: '#444', lineHeight: 1.5,
                     overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
-                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{pin.text}</p>
+                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{renderMentions(pin.text)}</p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {pin.replies.length > 0 && (
                       <span style={{ fontSize: 11, color: '#888' }}>
@@ -2055,7 +2065,7 @@ function CommentsPanel({ comments, activePin, onSelectPin, onResolve, onReply, c
                             setReplyInputs(prev => ({ ...prev, [pin.id]: '' }));
                           }
                         }}
-                        placeholder="Reply…"
+                        placeholder="Reply… (@ to mention)"
                         style={{ flex: 1, border: '1px solid #e0e0e0', borderRadius: 5,
                           padding: '5px 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none' }}
                       />
@@ -2177,11 +2187,56 @@ export default function Mockups() {
   const [pendingPin,   setPendingPin]   = useState<{ x: number; y: number } | null>(null);
   const [pendingText,  setPendingText]  = useState('');
   const [showComments, setShowComments] = useState(false);
-  const mockupRef = useRef<HTMLDivElement>(null);
+  const mockupRef  = useRef<HTMLDivElement>(null);
+  const pendingRef = useRef<HTMLTextAreaElement>(null);
+
+  // @mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIdx,   setMentionIdx]   = useState(0);
+
+  const insertMention = (collab: Collaborator) => {
+    const ta = pendingRef.current;
+    const cursor = ta?.selectionStart ?? pendingText.length;
+    const before = pendingText.slice(0, cursor);
+    const atMatch = before.match(/@(\w*)$/);
+    if (!atMatch) return;
+    const start = cursor - atMatch[0].length;
+    const newText = pendingText.slice(0, start) + `@${collab.name} ` + pendingText.slice(cursor);
+    setPendingText(newText);
+    setMentionQuery(null);
+    setTimeout(() => ta?.focus(), 0);
+  };
+
+  const handlePendingChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setPendingText(val);
+    const cursor = e.target.selectionStart;
+    const before = val.slice(0, cursor);
+    const m = before.match(/@(\w*)$/);
+    if (m) { setMentionQuery(m[1]); setMentionIdx(0); }
+    else    { setMentionQuery(null); }
+  };
+
+  const handlePendingKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && mentionMatches.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => Math.min(i + 1, mentionMatches.length - 1)); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIdx(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); insertMention(mentionMatches[mentionIdx]); return; }
+      if (e.key === 'Escape')    { setMentionQuery(null); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
+    if (e.key === 'Escape') { setPendingPin(null); setPendingText(''); }
+  };
 
   // ── Collaboration ──────────────────────────────────────────────────────────
   const [showInvite,    setShowInvite]    = useState(false);
   const [collaborators, setCollaborators] = useState<Collaborator[]>(() => [ownerCollaborator]);
+
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return collaborators.filter(c => c.name.toLowerCase().includes(q));
+  }, [mentionQuery, collaborators]);
 
   const platforms  = [...new Set(MOCKUPS.map(m => m.platform))];
   const creative   = creatives[active] ?? null;
@@ -2524,28 +2579,55 @@ export default function Mockups() {
                   </div>
                   {/* Text input popup — Figma-style */}
                   <div style={{ position: 'absolute', left: 22, top: -14,
-                    background: '#fff', borderRadius: 8, width: 260,
+                    background: '#fff', borderRadius: 8, width: 268,
                     boxShadow: '0 4px 24px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.08)',
-                    fontFamily: '"Inter",system-ui,sans-serif', overflow: 'hidden' }}>
+                    fontFamily: '"Inter",system-ui,sans-serif' }}>
+
+                    {/* @mention dropdown */}
+                    {mentionQuery !== null && mentionMatches.length > 0 && (
+                      <div style={{ borderBottom: '1px solid #f0f0f0', padding: '4px 0' }}>
+                        {mentionMatches.map((c, i) => (
+                          <button key={c.id}
+                            onMouseDown={e => { e.preventDefault(); insertMention(c); }}
+                            style={{
+                              width: '100%', textAlign: 'left', background: i === mentionIdx ? '#f0f8ff' : 'none',
+                              border: 'none', padding: '7px 12px', cursor: 'pointer', display: 'flex',
+                              alignItems: 'center', gap: 8, fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={() => setMentionIdx(i)}>
+                            <div style={{ width: 24, height: 24, borderRadius: '50%', background: c.color, flexShrink: 0,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 10, fontWeight: 700, color: '#fff' }}>{c.initials}</div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#111' }}>{c.name}</div>
+                              <div style={{ fontSize: 11, color: '#999' }}>{c.role}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {mentionQuery !== null && mentionMatches.length === 0 && (
+                      <div style={{ padding: '8px 12px', fontSize: 12, color: '#aaa', borderBottom: '1px solid #f0f0f0' }}>
+                        No collaborators match "@{mentionQuery}"
+                      </div>
+                    )}
+
                     <textarea
+                      ref={pendingRef}
                       autoFocus
                       value={pendingText}
-                      onChange={e => setPendingText(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
-                        if (e.key === 'Escape') { setPendingPin(null); setPendingText(''); }
-                      }}
-                      placeholder="Add a comment…"
+                      onChange={handlePendingChange}
+                      onKeyDown={handlePendingKeyDown}
+                      placeholder="Add a comment… (type @ to mention)"
                       rows={3}
                       style={{ width: '100%', resize: 'none', border: 'none',
                         padding: '12px 12px 6px', fontSize: 13, fontFamily: 'inherit',
                         outline: 'none', boxSizing: 'border-box', color: '#111',
-                        background: 'transparent', display: 'block',
-                        lineHeight: 1.5 }}
+                        background: 'transparent', display: 'block', lineHeight: 1.5,
+                        borderRadius: '0 0 0 0' }}
                     />
                     {/* Bottom row: avatar + buttons */}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '6px 10px 10px', gap: 8 }}>
-                      {/* Author avatar */}
                       <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                         background: ownerCollaborator.color,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -2553,7 +2635,7 @@ export default function Mockups() {
                         {ownerCollaborator.initials}
                       </div>
                       <div style={{ flex: 1 }} />
-                      <button onClick={() => { setPendingPin(null); setPendingText(''); }}
+                      <button onClick={() => { setPendingPin(null); setPendingText(''); setMentionQuery(null); }}
                         style={{ background: 'none', border: 'none', borderRadius: 5,
                           padding: '5px 10px', fontSize: 12, cursor: 'pointer', color: '#666',
                           fontFamily: 'inherit', fontWeight: 500 }}
